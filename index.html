@@ -68,32 +68,6 @@
 
   main{max-width:960px;margin:0 auto;padding:20px;}
 
-  .axis-group{margin-bottom:14px;}
-  .axis-label{
-    font-family:'Rajdhani',sans-serif;
-    font-size:12px;
-    font-weight:700;
-    letter-spacing:.2em;
-    color:var(--muted);
-    margin:0 0 8px 2px;
-  }
-  .tabs{display:flex;flex-wrap:wrap;gap:8px;}
-  .tab{
-    border:1px solid var(--border);
-    background:var(--panel);
-    color:var(--muted);
-    padding:8px 14px;
-    border-radius:999px;
-    font-size:13px;
-    font-weight:500;
-    cursor:pointer;
-    transition:all .15s ease;
-    white-space:nowrap;
-  }
-  .tab:hover{border-color:#454b55;color:var(--text);}
-  .tab.active.axis-single{background:rgba(79,195,247,.14);border-color:var(--blue);color:var(--blue);}
-  .tab.active.axis-double{background:rgba(255,146,72,.14);border-color:var(--orange);color:var(--orange);}
-
   .panel{
     background:var(--panel);
     border:1px solid var(--border);
@@ -104,35 +78,89 @@
   .panel-head{
     padding:16px 18px;
     display:flex;
-    align-items:baseline;
+    align-items:center;
     justify-content:space-between;
     gap:10px;
     border-bottom:1px solid var(--border);
     background:var(--panel-2);
-  }
-  .panel-head h2{
-    margin:0;
-    font-size:18px;
-    font-weight:700;
+    flex-wrap:wrap;
   }
   .panel-head .count{
     font-family:'Rajdhani',sans-serif;
     font-size:13px;
     color:var(--muted);
   }
-  .axis-tag{
-    display:inline-block;
+
+  .motor-switcher{display:flex;align-items:center;gap:8px;}
+  .axis-toggle{
     font-family:'Rajdhani',sans-serif;
     font-size:11px;
     font-weight:700;
     letter-spacing:.1em;
-    padding:2px 8px;
-    border-radius:4px;
-    margin-right:8px;
-    vertical-align:middle;
+    padding:6px 10px;
+    border-radius:6px;
+    border:1px solid transparent;
+    cursor:pointer;
+    transition:filter .15s;
+    white-space:nowrap;
   }
-  .axis-tag.axis-single{background:rgba(79,195,247,.15);color:var(--blue);}
-  .axis-tag.axis-double{background:rgba(255,146,72,.15);color:var(--orange);}
+  .axis-toggle:hover{filter:brightness(1.15);}
+  .axis-toggle.axis-single{background:rgba(79,195,247,.15);color:var(--blue);border-color:rgba(79,195,247,.4);}
+  .axis-toggle.axis-double{background:rgba(255,146,72,.15);color:var(--orange);border-color:rgba(255,146,72,.4);}
+
+  .motor-select{position:relative;}
+  .motor-select-btn{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    background:none;
+    border:1px solid transparent;
+    color:var(--text);
+    font-size:18px;
+    font-weight:700;
+    font-family:'Noto Sans JP',sans-serif;
+    cursor:pointer;
+    padding:5px 8px;
+    border-radius:6px;
+    transition:background .15s, border-color .15s;
+  }
+  .motor-select-btn:hover{background:#262b32;border-color:var(--border);}
+  .motor-select-btn .chevron{font-size:12px;color:var(--muted);transition:transform .15s;}
+  .motor-select-btn.open .chevron{transform:rotate(180deg);}
+
+  .motor-dropdown{
+    position:absolute;
+    top:calc(100% + 6px);
+    left:0;
+    min-width:200px;
+    max-height:320px;
+    overflow-y:auto;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:8px;
+    box-shadow:0 12px 28px rgba(0,0,0,.45);
+    padding:6px;
+    z-index:50;
+    display:none;
+  }
+  .motor-dropdown.open{display:block;}
+  .motor-option{
+    display:block;
+    width:100%;
+    text-align:left;
+    background:none;
+    border:none;
+    color:var(--text);
+    font-family:'Noto Sans JP',sans-serif;
+    font-size:14px;
+    padding:9px 10px;
+    border-radius:6px;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .motor-option:hover{background:#262b32;}
+  .motor-option.active.axis-single{background:rgba(79,195,247,.14);color:var(--blue);}
+  .motor-option.active.axis-double{background:rgba(255,146,72,.14);color:var(--orange);}
 
   .entry{
     padding:16px 18px;
@@ -421,11 +449,18 @@
 </header>
 
 <main>
-  <div id="tabs"></div>
-
   <div class="panel" id="panel">
     <div class="panel-head">
-      <h2 id="panel-title"></h2>
+      <div class="motor-switcher">
+        <button type="button" class="axis-toggle" id="axis-toggle"></button>
+        <div class="motor-select">
+          <button type="button" class="motor-select-btn" id="motor-select-btn">
+            <span id="motor-select-label"></span>
+            <span class="chevron">▾</span>
+          </button>
+          <div class="motor-dropdown" id="motor-dropdown"></div>
+        </div>
+      </div>
       <div class="count" id="panel-count"></div>
     </div>
 
@@ -667,36 +702,73 @@ function rememberOwner(name){
 }
 renderOwnerOptions();
 
-/* ---------- タブ描画 ---------- */
-const tabsEl = document.getElementById('tabs');
-function renderTabs(){
-  tabsEl.innerHTML = '';
-  AXIS_GROUPS.forEach(g => {
-    const wrap = document.createElement('div');
-    wrap.className = 'axis-group';
-    const label = document.createElement('div');
-    label.className = 'axis-label';
-    label.textContent = g.label.toUpperCase();
-    wrap.appendChild(label);
-    const row = document.createElement('div');
-    row.className = 'tabs';
-    g.types.forEach(t => {
-      const key = motorKey(g.axis, t);
-      const btn = document.createElement('button');
-      btn.className = 'tab' + (key===currentKey ? ' active axis-'+g.axis : '');
-      btn.textContent = t;
-      btn.addEventListener('click', () => {
-        if(typeof editingEntry !== 'undefined' && editingEntry) exitEditMode();
-        currentKey = key;
-        renderTabs();
-        renderPanel();
-      });
-      row.appendChild(btn);
+/* ---------- モーター切り替え（軸トグル＋種別プルダウン） ---------- */
+const axisToggleBtn = document.getElementById('axis-toggle');
+const motorSelectBtn = document.getElementById('motor-select-btn');
+const motorSelectLabel = document.getElementById('motor-select-label');
+const motorDropdown = document.getElementById('motor-dropdown');
+
+function openMotorDropdown(){
+  motorDropdown.classList.add('open');
+  motorSelectBtn.classList.add('open');
+}
+function closeMotorDropdown(){
+  motorDropdown.classList.remove('open');
+  motorSelectBtn.classList.remove('open');
+}
+
+function renderMotorDropdown(){
+  const motor = getMotor(currentKey);
+  const axisClass = 'axis-' + motor.axis;
+  const group = AXIS_GROUPS.find(g => g.axis === motor.axis);
+  motorDropdown.innerHTML = '';
+  group.types.forEach(t => {
+    const key = motorKey(group.axis, t);
+    const opt = document.createElement('button');
+    opt.type = 'button';
+    opt.className = 'motor-option' + (key === currentKey ? ' active ' + axisClass : '');
+    opt.textContent = t;
+    opt.addEventListener('click', () => {
+      if(typeof editingEntry !== 'undefined' && editingEntry) exitEditMode();
+      currentKey = key;
+      closeMotorDropdown();
+      renderSwitcher();
+      renderPanel();
     });
-    wrap.appendChild(row);
-    tabsEl.appendChild(wrap);
+    motorDropdown.appendChild(opt);
   });
 }
+
+function renderSwitcher(){
+  const motor = getMotor(currentKey);
+  const axisClass = 'axis-' + motor.axis;
+  axisToggleBtn.textContent = motor.axis === 'single' ? '片軸' : '両軸';
+  axisToggleBtn.className = 'axis-toggle ' + axisClass;
+  motorSelectLabel.textContent = motor.name;
+  renderMotorDropdown();
+}
+
+motorSelectBtn.addEventListener('click', (ev) => {
+  ev.stopPropagation();
+  if(motorDropdown.classList.contains('open')) closeMotorDropdown();
+  else openMotorDropdown();
+});
+
+document.addEventListener('click', (ev) => {
+  if(!motorDropdown.contains(ev.target) && ev.target !== motorSelectBtn){
+    closeMotorDropdown();
+  }
+});
+
+axisToggleBtn.addEventListener('click', () => {
+  if(typeof editingEntry !== 'undefined' && editingEntry) exitEditMode();
+  const nextAxis = getMotor(currentKey).axis === 'single' ? 'double' : 'single';
+  const nextGroup = AXIS_GROUPS.find(g => g.axis === nextAxis);
+  currentKey = motorKey(nextGroup.axis, nextGroup.types[0]);
+  closeMotorDropdown();
+  renderSwitcher();
+  renderPanel();
+});
 
 /* ---------- パネル（フォーム＋表）描画 ---------- */
 const COLUMNS = [
@@ -713,7 +785,6 @@ function getMotor(key){ return ALL_MOTORS.find(m => m.key===key); }
 function getEntries(key){ if(!db.entries[key]) db.entries[key]=[]; return db.entries[key]; }
 function getSort(key){ if(!db.sort[key]) db.sort[key] = {col:'rpm', dir:'desc'}; return db.sort[key]; }
 
-const titleEl = document.getElementById('panel-title');
 const countEl = document.getElementById('panel-count');
 const theadRow = document.getElementById('thead-row');
 const tbody = document.getElementById('tbody');
@@ -769,10 +840,7 @@ function computeAverages(key){
 }
 
 function renderPanel(){
-  const motor = getMotor(currentKey);
-  const axisTagClass = motor.axis==='single' ? 'axis-single' : 'axis-double';
-  const axisTagText = motor.axis==='single' ? '片軸' : '両軸';
-  titleEl.innerHTML = `<span class="axis-tag ${axisTagClass}">${axisTagText}</span>${motor.name}`;
+  renderSwitcher();
 
   const entries = getEntries(currentKey);
   const rowCount = getDisplayRows(currentKey).length;
@@ -1197,7 +1265,6 @@ addBtn.addEventListener('click', addOrUpdateEntry);
 });
 
 /* ---------- 初期描画 ---------- */
-renderTabs();
 renderPanel();
 </script>
 
