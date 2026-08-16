@@ -476,6 +476,11 @@
           <label>計測日</label>
           <input type="date" id="f-date">
         </div>
+        <div class="field">
+          <label>所有者</label>
+          <input type="text" id="f-owner" list="owner-datalist" placeholder="所有者名" autocomplete="off">
+          <datalist id="owner-datalist"></datalist>
+        </div>
       </div>
       <div class="entry-actions">
         <button type="button" class="cancel-edit" id="cancel-edit-btn" style="display:none;">キャンセル</button>
@@ -615,6 +620,7 @@ function saveAll(data){
 let db = loadAll();
 if(!db.entries) db.entries = {};
 if(!db.sort) db.sort = {};
+if(!db.owners) db.owners = [];
 
 // 他の端末からの更新をリアルタイムに受け取る
 if(cloudEnabled){
@@ -635,7 +641,9 @@ if(cloudEnabled){
       db = parsed;
       if(!db.entries) db.entries = {};
       if(!db.sort) db.sort = {};
+      if(!db.owners) db.owners = [];
       saveLocal(db);
+      if(typeof renderOwnerOptions === 'function') renderOwnerOptions();
       if(typeof renderPanel === 'function') renderPanel();
       setSyncStatus('クラウド同期 有効（他端末の更新を反映）', 'on');
     }catch(e){
@@ -649,6 +657,26 @@ if(cloudEnabled){
 }
 
 let currentKey = ALL_MOTORS[0].key;
+
+/* ---------- 所有者の記憶（プルダウン候補） ---------- */
+const ownerDatalistEl = document.getElementById('owner-datalist');
+function renderOwnerOptions(){
+  ownerDatalistEl.innerHTML = '';
+  db.owners.slice().sort((a,b) => a.localeCompare(b, 'ja')).forEach(o => {
+    const opt = document.createElement('option');
+    opt.value = o;
+    ownerDatalistEl.appendChild(opt);
+  });
+}
+function rememberOwner(name){
+  const trimmed = (name || '').trim();
+  if(!trimmed) return;
+  if(!db.owners.includes(trimmed)){
+    db.owners.push(trimmed);
+    renderOwnerOptions();
+  }
+}
+renderOwnerOptions();
 
 /* ---------- タブ描画 ---------- */
 const tabsEl = document.getElementById('tabs');
@@ -689,6 +717,7 @@ const COLUMNS = [
   {key:'w',    label:'回転電力 (W)',sortable:true, type:'num'},
   {key:'rpm',  label:'回転数 (rpm)',sortable:true, type:'num'},
   {key:'date', label:'計測日',   sortable:true, type:'text'},
+  {key:'owner',label:'所有者',   sortable:true, type:'text'},
 ];
 
 function getMotor(key){ return ALL_MOTORS.find(m => m.key===key); }
@@ -903,6 +932,10 @@ function renderRows(){
     tdDate.textContent = e.date || '—';
     tr.appendChild(tdDate);
 
+    const tdOwner = document.createElement('td');
+    tdOwner.textContent = e.owner || '—';
+    tr.appendChild(tdOwner);
+
     const tdActions = document.createElement('td');
     tdActions.className = 'action-cell';
 
@@ -967,7 +1000,7 @@ function renderModalTable(no){
   const avg = computeAverages(currentKey);
   const history = row.history; // 新しい→古い
 
-  modalThead.innerHTML = '<th>計測日</th><th>電圧(V)</th><th>電流(A)</th><th>回転電力(W)</th><th>回転数(rpm)</th><th></th>';
+  modalThead.innerHTML = '<th>計測日</th><th>所有者</th><th>電圧(V)</th><th>電流(A)</th><th>回転電力(W)</th><th>回転数(rpm)</th><th></th>';
   modalTbody.innerHTML = '';
 
   history.forEach((e, idx) => {
@@ -977,6 +1010,10 @@ function renderModalTable(no){
     const tdDate = document.createElement('td');
     tdDate.textContent = (e.date || '—') + (idx===0 && row.count>1 ? '（最新）' : '');
     tr.appendChild(tdDate);
+
+    const tdOwner = document.createElement('td');
+    tdOwner.textContent = e.owner || '—';
+    tr.appendChild(tdOwner);
 
     [['v',2],['a',2],['w',2],['rpm',0]].forEach(([k,d]) => {
       const cell = cellMarkup(e[k], prevEntry, avg[k], k, d);
@@ -1039,6 +1076,7 @@ const fA = document.getElementById('f-a');
 const fW = document.getElementById('f-w');
 const fRpm = document.getElementById('f-rpm');
 const fDate = document.getElementById('f-date');
+const fOwner = document.getElementById('f-owner');
 
 function todayStr(){
   const d = new Date();
@@ -1079,6 +1117,7 @@ function enterEditMode(entry){
   fW.value = entry.w;
   fRpm.value = entry.rpm;
   fDate.value = entry.date || todayStr();
+  fOwner.value = entry.owner || '';
   fW.dataset.userEdited = 'true'; // 編集中は自動計算で上書きしない
   addBtn.textContent = '更新';
   cancelEditBtn.style.display = 'inline-block';
@@ -1094,7 +1133,7 @@ function exitEditMode(){
   editingEntry = null;
   addBtn.textContent = '＋ 追加';
   cancelEditBtn.style.display = 'none';
-  fNo.value=''; fV.value=''; fA.value=''; fW.value=''; fRpm.value='';
+  fNo.value=''; fV.value=''; fA.value=''; fW.value=''; fRpm.value=''; fOwner.value='';
   fDate.value = todayStr();
   fW.dataset.userEdited = 'false';
   clearFieldErrors();
@@ -1111,7 +1150,8 @@ function addOrUpdateEntry(){
     a: fA.value,
     w: fW.value,
     rpm: fRpm.value,
-    date: fDate.value || todayStr()
+    date: fDate.value || todayStr(),
+    owner: fOwner.value.trim()
   };
 
   const missing = [];
@@ -1136,17 +1176,20 @@ function addOrUpdateEntry(){
     editingEntry.w = entry.w;
     editingEntry.rpm = entry.rpm;
     editingEntry.date = entry.date;
+    editingEntry.owner = entry.owner;
+    rememberOwner(entry.owner);
     saveAll(db);
     renderPanel();
     exitEditMode();
     return;
   }
 
+  rememberOwner(entry.owner);
   getEntries(currentKey).push(entry);
   saveAll(db);
   renderPanel();
 
-  // 次の番号入力をしやすいよう番号欄以外をクリア（計測日は当日のまま維持）
+  // 次の番号入力をしやすいよう番号欄以外をクリア（計測日・所有者は維持）
   fV.value=''; fA.value=''; fW.value=''; fRpm.value='';
   fW.dataset.userEdited = 'false';
   fNo.focus();
@@ -1155,7 +1198,7 @@ function addOrUpdateEntry(){
 addBtn.addEventListener('click', addOrUpdateEntry);
 
 // Enterキーでも追加／更新できるようにする（各入力欄で）
-[fNo, fV, fA, fW, fRpm, fDate].forEach(f => {
+[fNo, fV, fA, fW, fRpm, fDate, fOwner].forEach(f => {
   f.addEventListener('keydown', (ev) => {
     if(ev.key === 'Enter'){
       ev.preventDefault();
