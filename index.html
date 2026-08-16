@@ -779,6 +779,7 @@ const COLUMNS = [
   {key:'a',    label:'電流 (A)',   sortable:true, type:'num'},
   {key:'w',    label:'回転電力 (W)',sortable:true, type:'num'},
   {key:'rpm',  label:'回転数 (rpm)',sortable:true, type:'num'},
+  {key:'efficiency', label:'効率値 (rpm/A)', sortable:true, type:'num'},
   {key:'date', label:'計測日',   sortable:true, type:'text'},
   {key:'owner',label:'所有者',   sortable:true, type:'text'},
 ];
@@ -786,6 +787,14 @@ const COLUMNS = [
 function getMotor(key){ return ALL_MOTORS.find(m => m.key===key); }
 function getEntries(key){ if(!db.entries[key]) db.entries[key]=[]; return db.entries[key]; }
 function getSort(key){ if(!db.sort[key]) db.sort[key] = {col:'rpm', dir:'desc'}; return db.sort[key]; }
+
+// 効率値＝回転数÷電流。保存はせず、表示のたびにその場で算出する
+function getEfficiency(entry){
+  const rpm = parseFloat(entry.rpm);
+  const a = parseFloat(entry.a);
+  if(isNaN(rpm) || isNaN(a) || a === 0) return null;
+  return rpm / a;
+}
 
 const countEl = document.getElementById('panel-count');
 const theadRow = document.getElementById('thead-row');
@@ -827,17 +836,19 @@ function getDisplayRows(key){
 // 一覧表に表示されている値（各モーターの最新計測）を元に平均を算出
 function computeAverages(key){
   const rows = getDisplayRows(key);
-  const sums = {v:0, a:0, w:0, rpm:0};
-  const counts = {v:0, a:0, w:0, rpm:0};
+  const sums = {v:0, a:0, w:0, rpm:0, efficiency:0};
+  const counts = {v:0, a:0, w:0, rpm:0, efficiency:0};
   rows.forEach(r => {
     const e = r.latest;
     ['v','a','w','rpm'].forEach(col => {
       const n = parseFloat(e[col]);
       if(!isNaN(n)){ sums[col]+=n; counts[col]++; }
     });
+    const eff = getEfficiency(e);
+    if(eff !== null){ sums.efficiency += eff; counts.efficiency++; }
   });
   const avg = {};
-  ['v','a','w','rpm'].forEach(col => { avg[col] = counts[col] ? sums[col]/counts[col] : null; });
+  ['v','a','w','rpm','efficiency'].forEach(col => { avg[col] = counts[col] ? sums[col]/counts[col] : null; });
   return avg;
 }
 
@@ -879,7 +890,7 @@ function renderHead(){
 }
 
 // セルの中身（平均比較の色クラス＋直前計測との差分表示）を組み立てる
-function cellMarkup(curVal, prevEntry, avgVal, colKey, decimals){
+function cellMarkup(curVal, prevVal, avgVal, decimals){
   const text = fmt(curVal, decimals);
   const cv = parseFloat(curVal);
 
@@ -890,14 +901,12 @@ function cellMarkup(curVal, prevEntry, avgVal, colKey, decimals){
   }
 
   let deltaHtml = '';
-  if(prevEntry){
-    const pv = parseFloat(prevEntry[colKey]);
-    if(!isNaN(pv) && !isNaN(cv) && pv !== cv){
-      const diff = cv - pv;
-      const sign = diff > 0 ? '+' : '−';
-      const diffStr = fmt(Math.abs(diff), decimals);
-      deltaHtml = `<span class="delta">(${sign}${diffStr})</span>`;
-    }
+  const pv = parseFloat(prevVal);
+  if(!isNaN(pv) && !isNaN(cv) && pv !== cv){
+    const diff = cv - pv;
+    const sign = diff > 0 ? '+' : '−';
+    const diffStr = fmt(Math.abs(diff), decimals);
+    deltaHtml = `<span class="delta">(${sign}${diffStr})</span>`;
   }
 
   return {cls, html: text + deltaHtml};
@@ -937,7 +946,8 @@ function renderRows(){
   const avg = computeAverages(currentKey);
 
   rows.sort((x,y) => {
-    let a = x.latest[col.key], b = y.latest[col.key];
+    let a = col.key === 'efficiency' ? getEfficiency(x.latest) : x.latest[col.key];
+    let b = col.key === 'efficiency' ? getEfficiency(y.latest) : y.latest[col.key];
     if(col.type === 'num'){ a = parseFloat(a); b = parseFloat(b); }
     else { a = String(a||''); b = String(b||''); }
     let cmp;
@@ -961,30 +971,43 @@ function renderRows(){
     tdNo.addEventListener('click', () => openHistoryModal(row.no));
     tr.appendChild(tdNo);
 
-    const vCell = cellMarkup(e.v, row.previous, avg.v, 'v', 2);
+    const vCell = cellMarkup(e.v, row.previous && row.previous.v, avg.v, 2);
     const tdV = document.createElement('td');
     tdV.className = 'num' + (vCell.cls ? ' '+vCell.cls : '');
     tdV.innerHTML = vCell.html;
     tr.appendChild(tdV);
 
-    const aCell = cellMarkup(e.a, row.previous, avg.a, 'a', 2);
+    const aCell = cellMarkup(e.a, row.previous && row.previous.a, avg.a, 2);
     const tdA = document.createElement('td');
     tdA.className = 'num' + (aCell.cls ? ' '+aCell.cls : '');
     tdA.innerHTML = aCell.html;
     tr.appendChild(tdA);
 
-    const wCell = cellMarkup(e.w, row.previous, avg.w, 'w', 2);
+    const wCell = cellMarkup(e.w, row.previous && row.previous.w, avg.w, 2);
     const tdW = document.createElement('td');
     tdW.className = 'num' + (wCell.cls ? ' '+wCell.cls : '');
     tdW.innerHTML = wCell.html;
     tr.appendChild(tdW);
 
-    const rpmCell = cellMarkup(e.rpm, row.previous, avg.rpm, 'rpm', 0);
+    const rpmCell = cellMarkup(e.rpm, row.previous && row.previous.rpm, avg.rpm, 0);
     const tdRpm = document.createElement('td');
     tdRpm.className = 'num rpm-cell' + (rpmCell.cls ? ' '+rpmCell.cls : '');
     const pct = Math.max(2, (parseFloat(e.rpm)||0) / maxRpm * 100);
     tdRpm.innerHTML = `${rpmCell.html}<div class="rpm-bar-track"><div class="rpm-bar-fill" style="width:${pct}%"></div></div>`;
     tr.appendChild(tdRpm);
+
+    const tdEfficiency = document.createElement('td');
+    const effVal = getEfficiency(e);
+    if(effVal === null){
+      tdEfficiency.className = 'num';
+      tdEfficiency.textContent = '—';
+    }else{
+      const effPrev = row.previous ? getEfficiency(row.previous) : undefined;
+      const effCell = cellMarkup(effVal, effPrev, avg.efficiency, 0);
+      tdEfficiency.className = 'num' + (effCell.cls ? ' '+effCell.cls : '');
+      tdEfficiency.innerHTML = effCell.html;
+    }
+    tr.appendChild(tdEfficiency);
 
     const tdDate = document.createElement('td');
     tdDate.className = 'num';
@@ -1059,7 +1082,7 @@ function renderModalTable(no){
   const avg = computeAverages(currentKey);
   const history = row.history; // 新しい→古い
 
-  modalThead.innerHTML = '<th>計測日</th><th>所有者</th><th>電圧(V)</th><th>電流(A)</th><th>回転電力(W)</th><th>回転数(rpm)</th><th></th>';
+  modalThead.innerHTML = '<th>計測日</th><th>所有者</th><th>電圧(V)</th><th>電流(A)</th><th>回転電力(W)</th><th>回転数(rpm)</th><th>効率値(rpm/A)</th><th></th>';
   modalTbody.innerHTML = '';
 
   history.forEach((e, idx) => {
@@ -1075,12 +1098,25 @@ function renderModalTable(no){
     tr.appendChild(tdOwner);
 
     [['v',2],['a',2],['w',2],['rpm',0]].forEach(([k,d]) => {
-      const cell = cellMarkup(e[k], prevEntry, avg[k], k, d);
+      const cell = cellMarkup(e[k], prevEntry && prevEntry[k], avg[k], d);
       const td = document.createElement('td');
       td.className = 'num' + (cell.cls ? ' '+cell.cls : '');
       td.innerHTML = cell.html;
       tr.appendChild(td);
     });
+
+    const tdEfficiency = document.createElement('td');
+    const effVal = getEfficiency(e);
+    if(effVal === null){
+      tdEfficiency.className = 'num';
+      tdEfficiency.textContent = '—';
+    }else{
+      const effPrev = prevEntry ? getEfficiency(prevEntry) : undefined;
+      const effCell = cellMarkup(effVal, effPrev, avg.efficiency, 0);
+      tdEfficiency.className = 'num' + (effCell.cls ? ' '+effCell.cls : '');
+      tdEfficiency.innerHTML = effCell.html;
+    }
+    tr.appendChild(tdEfficiency);
 
     const tdActions = document.createElement('td');
     tdActions.className = 'action-cell';
