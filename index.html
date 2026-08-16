@@ -1,0 +1,1173 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>モーターラボ | モーター管理</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#14161a;
+    --panel:#1c1f24;
+    --panel-2:#20242a;
+    --border:#2c3138;
+    --text:#e9e7e1;
+    --muted:#8b909a;
+    --yellow:#ffcc33;
+    --blue:#4fc3f7;
+    --orange:#ff9248;
+    --danger:#ff5c5c;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(circle at 15% 0%, #1e2229 0%, var(--bg) 45%),
+      var(--bg);
+    color:var(--text);
+    font-family:'Noto Sans JP', sans-serif;
+    min-height:100vh;
+    padding-bottom:60px;
+  }
+  .num{font-family:'Rajdhani',sans-serif;font-variant-numeric:tabular-nums;}
+
+  header{
+    padding:28px 20px 18px;
+    border-bottom:1px solid var(--border);
+    background:linear-gradient(180deg,#191c21 0%, transparent 100%);
+  }
+  .eyebrow{
+    font-family:'Rajdhani',sans-serif;
+    letter-spacing:.35em;
+    font-size:11px;
+    color:var(--yellow);
+    font-weight:600;
+    margin-bottom:6px;
+  }
+  h1{
+    margin:0;
+    font-family:'Rajdhani',sans-serif;
+    font-weight:700;
+    font-size:30px;
+    letter-spacing:.02em;
+  }
+  h1 span{color:var(--muted);font-weight:500;font-size:16px;margin-left:10px;}
+  .sync-status{
+    margin-top:8px;
+    font-family:'Rajdhani',sans-serif;
+    font-size:11px;
+    font-weight:600;
+    letter-spacing:.05em;
+    color:var(--muted);
+  }
+  .sync-status.on{color:#5ee6a0;}
+  .sync-status.error{color:var(--danger);}
+
+  main{max-width:960px;margin:0 auto;padding:20px;}
+
+  .axis-group{margin-bottom:14px;}
+  .axis-label{
+    font-family:'Rajdhani',sans-serif;
+    font-size:12px;
+    font-weight:700;
+    letter-spacing:.2em;
+    color:var(--muted);
+    margin:0 0 8px 2px;
+  }
+  .tabs{display:flex;flex-wrap:wrap;gap:8px;}
+  .tab{
+    border:1px solid var(--border);
+    background:var(--panel);
+    color:var(--muted);
+    padding:8px 14px;
+    border-radius:999px;
+    font-size:13px;
+    font-weight:500;
+    cursor:pointer;
+    transition:all .15s ease;
+    white-space:nowrap;
+  }
+  .tab:hover{border-color:#454b55;color:var(--text);}
+  .tab.active.axis-single{background:rgba(79,195,247,.14);border-color:var(--blue);color:var(--blue);}
+  .tab.active.axis-double{background:rgba(255,146,72,.14);border-color:var(--orange);color:var(--orange);}
+
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    margin-top:20px;
+    overflow:hidden;
+  }
+  .panel-head{
+    padding:16px 18px;
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    gap:10px;
+    border-bottom:1px solid var(--border);
+    background:var(--panel-2);
+  }
+  .panel-head h2{
+    margin:0;
+    font-size:18px;
+    font-weight:700;
+  }
+  .panel-head .count{
+    font-family:'Rajdhani',sans-serif;
+    font-size:13px;
+    color:var(--muted);
+  }
+  .axis-tag{
+    display:inline-block;
+    font-family:'Rajdhani',sans-serif;
+    font-size:11px;
+    font-weight:700;
+    letter-spacing:.1em;
+    padding:2px 8px;
+    border-radius:4px;
+    margin-right:8px;
+    vertical-align:middle;
+  }
+  .axis-tag.axis-single{background:rgba(79,195,247,.15);color:var(--blue);}
+  .axis-tag.axis-double{background:rgba(255,146,72,.15);color:var(--orange);}
+
+  .entry{
+    padding:16px 18px;
+    border-bottom:1px solid var(--border);
+  }
+  .entry-fields{
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(110px, 1fr));
+    gap:10px;
+    margin-bottom:12px;
+  }
+  .entry-actions{
+    display:flex;
+    justify-content:flex-end;
+    gap:8px;
+  }
+  .field{display:flex;flex-direction:column;gap:5px;}
+  .field label{font-size:11px;color:var(--muted);letter-spacing:.05em;}
+  .field .unit-wrap{position:relative;}
+  .field input{
+    width:100%;
+    background:#14171b;
+    border:1px solid var(--border);
+    color:var(--text);
+    border-radius:6px;
+    padding:9px 10px;
+    font-size:14px;
+    font-family:'Rajdhani',sans-serif;
+    font-weight:600;
+    outline:none;
+    transition:border-color .15s;
+  }
+  .field input[type="date"]{color-scheme:dark;}
+  .field input:focus{border-color:var(--yellow);}
+  .field .unit{
+    position:absolute;right:10px;top:50%;transform:translateY(-50%);
+    font-size:11px;color:var(--muted);pointer-events:none;
+  }
+  button.add{
+    background:var(--yellow);
+    color:#1a1305;
+    border:none;
+    border-radius:6px;
+    padding:10px 18px;
+    font-family:'Rajdhani',sans-serif;
+    font-weight:700;
+    font-size:14px;
+    letter-spacing:.03em;
+    cursor:pointer;
+    height:38px;
+    white-space:nowrap;
+    transition:filter .15s, transform .1s;
+  }
+  button.add:hover{filter:brightness(1.08);}
+  button.add:active{transform:scale(.97);}
+  button.cancel-edit{
+    background:none;
+    border:1px solid var(--border);
+    color:var(--muted);
+    border-radius:6px;
+    padding:10px 16px;
+    font-family:'Rajdhani',sans-serif;
+    font-weight:600;
+    font-size:14px;
+    cursor:pointer;
+    height:38px;
+    white-space:nowrap;
+  }
+  button.cancel-edit:hover{color:var(--text);border-color:#454b55;}
+
+  .table-wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:14px;min-width:600px;}
+  thead th{
+    text-align:left;
+    padding:10px 14px;
+    font-family:'Rajdhani',sans-serif;
+    font-size:12px;
+    letter-spacing:.08em;
+    color:var(--muted);
+    border-bottom:1px solid var(--border);
+    cursor:pointer;
+    user-select:none;
+    white-space:nowrap;
+  }
+  thead th:hover{color:var(--text);}
+  thead th.sorted{color:var(--yellow);}
+  thead th .arrow{font-size:10px;margin-left:3px;opacity:.8;}
+  tbody td{
+    padding:10px 14px;
+    border-bottom:1px solid #24282e;
+    font-family:'Rajdhani',sans-serif;
+    font-weight:600;
+  }
+  tbody tr:hover{background:rgba(255,255,255,.02);}
+  tbody tr:last-child td{border-bottom:none;}
+  td.rpm-cell{position:relative;}
+  .val-up{color:var(--danger);}
+  .val-down{color:var(--blue);}
+  .delta{font-size:11px;font-weight:600;margin-left:4px;color:var(--muted)!important;}
+  .seq-badge{
+    display:inline-block;
+    margin-left:6px;
+    font-family:'Rajdhani',sans-serif;
+    font-size:10px;
+    font-weight:600;
+    color:var(--muted);
+    background:#262b32;
+    border-radius:4px;
+    padding:1px 6px;
+    vertical-align:middle;
+  }
+  .summary{
+    border-top:1px solid var(--border);
+    background:var(--panel-2);
+    padding:16px 18px 18px;
+    display:grid;
+    grid-template-columns:repeat(4, 1fr);
+    gap:10px;
+  }
+  .summary .stat{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:10px 12px;
+  }
+  .summary .stat-label{
+    font-size:11px;
+    color:var(--muted);
+    letter-spacing:.06em;
+    margin-bottom:4px;
+  }
+  .summary .stat-value{
+    font-family:'Rajdhani',sans-serif;
+    font-weight:700;
+    font-size:20px;
+    font-variant-numeric:tabular-nums;
+  }
+  .summary .stat-value .stat-unit{
+    font-size:12px;
+    color:var(--muted);
+    font-weight:600;
+    margin-left:3px;
+  }
+  .summary-empty{
+    grid-column:1/-1;
+    text-align:center;
+    color:var(--muted);
+    font-size:13px;
+    padding:6px 0;
+  }
+  @media (max-width:640px){
+    .summary{grid-template-columns:repeat(2, 1fr);}
+  }
+  .rpm-bar-track{
+    height:4px;
+    background:#262b32;
+    border-radius:2px;
+    margin-top:5px;
+    width:100%;
+    max-width:140px;
+  }
+  .rpm-bar-fill{
+    height:100%;
+    border-radius:2px;
+    background:linear-gradient(90deg,var(--yellow),#ff9248);
+  }
+  td.action-cell{text-align:right;white-space:nowrap;}
+  .edit-btn{
+    background:none;
+    border:1px solid var(--border);
+    color:var(--muted);
+    border-radius:5px;
+    padding:5px 9px;
+    font-size:12px;
+    cursor:pointer;
+    font-family:'Noto Sans JP',sans-serif;
+    margin-right:6px;
+  }
+  .edit-btn:hover{border-color:var(--yellow);color:var(--yellow);}
+  .del-btn{
+    background:none;
+    border:1px solid var(--border);
+    color:var(--muted);
+    border-radius:5px;
+    padding:5px 9px;
+    font-size:12px;
+    cursor:pointer;
+    font-family:'Noto Sans JP',sans-serif;
+  }
+  .del-btn:hover{border-color:var(--danger);color:var(--danger);}
+
+  .no-link{
+    cursor:pointer;
+    text-decoration:underline dotted;
+    text-underline-offset:3px;
+    text-decoration-color:#454b55;
+  }
+  .no-link:hover{color:var(--yellow);text-decoration-color:var(--yellow);}
+
+  .modal-backdrop{
+    position:fixed; inset:0;
+    background:rgba(0,0,0,.6);
+    display:none;
+    align-items:center;
+    justify-content:center;
+    padding:20px;
+    z-index:1000;
+  }
+  .modal-box{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    max-width:640px;
+    width:100%;
+    max-height:80vh;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+  .modal-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    padding:14px 18px;
+    border-bottom:1px solid var(--border);
+    background:var(--panel-2);
+  }
+  .modal-head h3{margin:0;font-size:15px;font-weight:700;}
+  .modal-close{
+    background:none;
+    border:none;
+    color:var(--muted);
+    font-size:18px;
+    line-height:1;
+    cursor:pointer;
+    padding:4px 8px;
+    border-radius:4px;
+  }
+  .modal-close:hover{color:var(--text);background:#2a2f36;}
+  .modal-body{overflow-y:auto;}
+  table.modal-table{width:100%;border-collapse:collapse;font-size:13px;min-width:520px;}
+  table.modal-table thead th{
+    text-align:left;
+    padding:9px 12px;
+    font-family:'Rajdhani',sans-serif;
+    font-size:11px;
+    letter-spacing:.06em;
+    color:var(--muted);
+    border-bottom:1px solid var(--border);
+    position:sticky;
+    top:0;
+    background:var(--panel);
+    white-space:nowrap;
+  }
+  table.modal-table td{
+    padding:9px 12px;
+    border-bottom:1px solid #24282e;
+    font-family:'Rajdhani',sans-serif;
+    font-weight:600;
+    white-space:nowrap;
+  }
+  table.modal-table tr:last-child td{border-bottom:none;}
+
+  .empty{
+    padding:36px 20px;
+    text-align:center;
+    color:var(--muted);
+    font-size:13px;
+  }
+
+  footer{
+    text-align:center;
+    color:#565b64;
+    font-size:11px;
+    padding:24px 20px 0;
+    font-family:'Rajdhani',sans-serif;
+    letter-spacing:.05em;
+  }
+
+  @media (max-width:640px){
+    .entry-actions{justify-content:stretch;}
+    .entry-actions button{flex:1;}
+    h1{font-size:24px;}
+    h1 span{display:block;margin:4px 0 0;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">MINI 4WD &nbsp;/&nbsp; MOTOR DATABASE</div>
+  <h1>モーターラボ<span>モーター管理</span></h1>
+  <div class="sync-status" id="sync-status">● ローカル保存のみ</div>
+</header>
+
+<main>
+  <div id="tabs"></div>
+
+  <div class="panel" id="panel">
+    <div class="panel-head">
+      <h2 id="panel-title"></h2>
+      <div class="count" id="panel-count"></div>
+    </div>
+
+    <div class="entry" id="entry-form">
+      <div class="entry-fields">
+        <div class="field">
+          <label>番号</label>
+          <input type="text" id="f-no" placeholder="No.1">
+        </div>
+        <div class="field">
+          <label>電圧</label>
+          <div class="unit-wrap">
+            <input type="number" id="f-v" step="0.01" placeholder="0.00" inputmode="decimal">
+            <span class="unit">V</span>
+          </div>
+        </div>
+        <div class="field">
+          <label>電流</label>
+          <div class="unit-wrap">
+            <input type="number" id="f-a" step="0.01" placeholder="0.00" inputmode="decimal">
+            <span class="unit">A</span>
+          </div>
+        </div>
+        <div class="field">
+          <label>回転電力</label>
+          <div class="unit-wrap">
+            <input type="number" id="f-w" step="0.01" placeholder="0.00" inputmode="decimal">
+            <span class="unit">W</span>
+          </div>
+        </div>
+        <div class="field">
+          <label>回転数</label>
+          <div class="unit-wrap">
+            <input type="number" id="f-rpm" step="1" placeholder="0" inputmode="decimal">
+            <span class="unit">rpm</span>
+          </div>
+        </div>
+        <div class="field">
+          <label>計測日</label>
+          <input type="date" id="f-date">
+        </div>
+      </div>
+      <div class="entry-actions">
+        <button type="button" class="cancel-edit" id="cancel-edit-btn" style="display:none;">キャンセル</button>
+        <button type="button" class="add" id="add-btn">＋ 追加</button>
+      </div>
+    </div>
+    <div id="form-error" style="display:none;padding:0 18px 14px;color:var(--danger);font-size:12px;"></div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr id="thead-row"></tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div class="empty" id="empty-msg" style="display:none;">データがありません。上の欄から追加してください。</div>
+    </div>
+
+    <div class="summary" id="summary-cards"></div>
+  </div>
+
+  <footer>KAEDE MOTOR LAB — 全データはこの端末のブラウザ内に保存されます</footer>
+</main>
+
+<div class="modal-backdrop" id="modal-backdrop">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3 id="modal-title"></h3>
+      <button class="modal-close" id="modal-close-btn">✕</button>
+    </div>
+    <div class="modal-body">
+      <table class="modal-table">
+        <thead><tr id="modal-thead"></tr></thead>
+        <tbody id="modal-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Firebase（クラウド同期用）。firebaseConfigを設定していない場合は自動的に無効になります -->
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+
+<script>
+/* ---------- Firebase 同期設定 ---------- */
+// ▼▼▼ Firebaseコンソールで取得した firebaseConfig の中身をここに貼り付けてください ▼▼▼
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+// ▲▲▲ ここまで（貼り付けたら保存すればクラウド同期が有効になります） ▲▲▲
+
+const syncStatusEl = document.getElementById('sync-status');
+let cloudEnabled = false;
+let firestoreDocRef = null;
+
+function setSyncStatus(text, cls){
+  syncStatusEl.textContent = '● ' + text;
+  syncStatusEl.className = 'sync-status' + (cls ? ' '+cls : '');
+}
+
+try{
+  if(firebaseConfig.apiKey && firebaseConfig.apiKey !== 'YOUR_API_KEY' && typeof firebase !== 'undefined'){
+    firebase.initializeApp(firebaseConfig);
+    firestoreDocRef = firebase.firestore().collection('kaedeMotorLab').doc('main');
+    cloudEnabled = true;
+    setSyncStatus('クラウド同期 接続中…', 'on');
+  }else{
+    setSyncStatus('ローカル保存のみ（Firebase未設定）');
+  }
+}catch(e){
+  console.warn('Firebase初期化に失敗しました。ローカル保存のみで動作します。', e);
+  cloudEnabled = false;
+  setSyncStatus('ローカル保存のみ（初期化エラー）', 'error');
+}
+
+/* ---------- モーター種別定義 ---------- */
+const AXIS_GROUPS = [
+  {
+    axis: 'single',
+    label: '片軸モーター',
+    types: ['ノーマル','レブチューン','トルクチューン','アトミックチューン','ライトダッシュ','ハイパーダッシュ','パワーダッシュ','スプリントダッシュ']
+  },
+  {
+    axis: 'double',
+    label: '両軸モーター',
+    types: ['ノーマル','レブチューン','トルクチューン','アトミックチューン','ライトダッシュ','ハイパーダッシュ','マッハダッシュ']
+  }
+];
+
+function motorKey(axis, name){ return axis + '__' + name; }
+
+const ALL_MOTORS = [];
+AXIS_GROUPS.forEach(g => g.types.forEach(t => ALL_MOTORS.push({axis:g.axis, axisLabel:g.label, name:t, key:motorKey(g.axis,t)})));
+
+/* ---------- 保存機構（デュアルフォールバック＋クラウド同期） ---------- */
+const STORAGE_KEY = 'kaede_motor_lab_v1';
+let memoryStore = null; // localStorage が使えない環境用のフォールバック
+
+function loadAll(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw) return JSON.parse(raw);
+  }catch(e){ /* localStorage 不可 → メモリへ */ }
+  if(memoryStore) return memoryStore;
+  return { entries:{}, sort:{} };
+}
+
+// ローカル（この端末）にだけ保存。クラウドへは送らない
+function saveLocal(data){
+  memoryStore = data;
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  }catch(e){ /* 保存できない場合はメモリ保持のみ（このセッション内で維持） */ }
+}
+
+// クラウド（Firestore）へ反映
+function pushToCloud(data){
+  if(!cloudEnabled || !firestoreDocRef) return;
+  firestoreDocRef.set({ payload: JSON.stringify(data), updatedAt: Date.now() })
+    .catch(err => {
+      console.warn('クラウド保存に失敗しました（この端末には保存されています）', err);
+      setSyncStatus('クラウド保存エラー（ローカルには保存済み）', 'error');
+    });
+}
+
+// 通常の保存はこちらを呼ぶ：ローカル保存＋クラウド保存の両方を行う
+function saveAll(data){
+  saveLocal(data);
+  pushToCloud(data);
+}
+
+let db = loadAll();
+if(!db.entries) db.entries = {};
+if(!db.sort) db.sort = {};
+
+// 他の端末からの更新をリアルタイムに受け取る
+if(cloudEnabled){
+  firestoreDocRef.onSnapshot((docSnap) => {
+    if(docSnap.metadata.hasPendingWrites){
+      // 自分自身の書き込みのエコー（サーバー確認前）は無視
+      setSyncStatus('クラウド同期 有効', 'on');
+      return;
+    }
+    if(!docSnap.exists){
+      // クラウドにまだデータがない → 今のローカル内容をアップロードして初期化
+      pushToCloud(db);
+      setSyncStatus('クラウド同期 有効', 'on');
+      return;
+    }
+    try{
+      const parsed = JSON.parse(docSnap.data().payload);
+      db = parsed;
+      if(!db.entries) db.entries = {};
+      if(!db.sort) db.sort = {};
+      saveLocal(db);
+      if(typeof renderPanel === 'function') renderPanel();
+      setSyncStatus('クラウド同期 有効（他端末の更新を反映）', 'on');
+    }catch(e){
+      console.warn('クラウドデータの読み込みに失敗しました', e);
+    }
+  }, (err) => {
+    console.warn('クラウド同期でエラーが発生しました。ローカル保存のみで動作します。', err);
+    cloudEnabled = false;
+    setSyncStatus('ローカル保存のみ（同期エラー）', 'error');
+  });
+}
+
+let currentKey = ALL_MOTORS[0].key;
+
+/* ---------- タブ描画 ---------- */
+const tabsEl = document.getElementById('tabs');
+function renderTabs(){
+  tabsEl.innerHTML = '';
+  AXIS_GROUPS.forEach(g => {
+    const wrap = document.createElement('div');
+    wrap.className = 'axis-group';
+    const label = document.createElement('div');
+    label.className = 'axis-label';
+    label.textContent = g.label.toUpperCase();
+    wrap.appendChild(label);
+    const row = document.createElement('div');
+    row.className = 'tabs';
+    g.types.forEach(t => {
+      const key = motorKey(g.axis, t);
+      const btn = document.createElement('button');
+      btn.className = 'tab' + (key===currentKey ? ' active axis-'+g.axis : '');
+      btn.textContent = t;
+      btn.addEventListener('click', () => {
+        if(typeof editingEntry !== 'undefined' && editingEntry) exitEditMode();
+        currentKey = key;
+        renderTabs();
+        renderPanel();
+      });
+      row.appendChild(btn);
+    });
+    wrap.appendChild(row);
+    tabsEl.appendChild(wrap);
+  });
+}
+
+/* ---------- パネル（フォーム＋表）描画 ---------- */
+const COLUMNS = [
+  {key:'no',   label:'番号',   sortable:true, type:'text'},
+  {key:'v',    label:'電圧 (V)',   sortable:true, type:'num'},
+  {key:'a',    label:'電流 (A)',   sortable:true, type:'num'},
+  {key:'w',    label:'回転電力 (W)',sortable:true, type:'num'},
+  {key:'rpm',  label:'回転数 (rpm)',sortable:true, type:'num'},
+  {key:'date', label:'計測日',   sortable:true, type:'text'},
+];
+
+function getMotor(key){ return ALL_MOTORS.find(m => m.key===key); }
+function getEntries(key){ if(!db.entries[key]) db.entries[key]=[]; return db.entries[key]; }
+function getSort(key){ if(!db.sort[key]) db.sort[key] = {col:'rpm', dir:'desc'}; return db.sort[key]; }
+
+const titleEl = document.getElementById('panel-title');
+const countEl = document.getElementById('panel-count');
+const theadRow = document.getElementById('thead-row');
+const tbody = document.getElementById('tbody');
+const summaryEl = document.getElementById('summary-cards');
+const emptyMsg = document.getElementById('empty-msg');
+
+// 計測日→追加順の順で並べる（同日なら追加順が古い方を先に）
+function sortByDateThenIndex(list, arr){
+  return list.slice().sort((a,b) => {
+    const da = a.date || '', db2 = b.date || '';
+    if(da !== db2) return da < db2 ? -1 : 1;
+    return arr.indexOf(a) - arr.indexOf(b);
+  });
+}
+
+// 「番号」ごとにグルーピングし、最新計測・直前計測・履歴（新しい順）をまとめる
+function getDisplayRows(key){
+  const arr = getEntries(key);
+  const groups = {};
+  arr.forEach(e => {
+    if(!groups[e.no]) groups[e.no] = [];
+    groups[e.no].push(e);
+  });
+  return Object.keys(groups).map(no => {
+    const chronological = sortByDateThenIndex(groups[no], arr); // 古い→新しい
+    const latest = chronological[chronological.length - 1];
+    const previous = chronological.length > 1 ? chronological[chronological.length - 2] : undefined;
+    return {
+      no,
+      latest,
+      previous,
+      history: chronological.slice().reverse(), // 新しい→古い（履歴表示用）
+      count: chronological.length
+    };
+  });
+}
+
+// 一覧表に表示されている値（各モーターの最新計測）を元に平均を算出
+function computeAverages(key){
+  const rows = getDisplayRows(key);
+  const sums = {v:0, a:0, w:0, rpm:0};
+  const counts = {v:0, a:0, w:0, rpm:0};
+  rows.forEach(r => {
+    const e = r.latest;
+    ['v','a','w','rpm'].forEach(col => {
+      const n = parseFloat(e[col]);
+      if(!isNaN(n)){ sums[col]+=n; counts[col]++; }
+    });
+  });
+  const avg = {};
+  ['v','a','w','rpm'].forEach(col => { avg[col] = counts[col] ? sums[col]/counts[col] : null; });
+  return avg;
+}
+
+function renderPanel(){
+  const motor = getMotor(currentKey);
+  const axisTagClass = motor.axis==='single' ? 'axis-single' : 'axis-double';
+  const axisTagText = motor.axis==='single' ? '片軸' : '両軸';
+  titleEl.innerHTML = `<span class="axis-tag ${axisTagClass}">${axisTagText}</span>${motor.name}`;
+
+  const entries = getEntries(currentKey);
+  const rowCount = getDisplayRows(currentKey).length;
+  countEl.textContent = rowCount + ' 本 / 計測 ' + entries.length + ' 件';
+
+  renderHead();
+  renderRows();
+}
+
+function renderHead(){
+  const sort = getSort(currentKey);
+  theadRow.innerHTML = '';
+  COLUMNS.forEach(col => {
+    const th = document.createElement('th');
+    const isSorted = sort.col === col.key;
+    th.className = isSorted ? 'sorted' : '';
+    th.innerHTML = col.label + (isSorted ? `<span class="arrow">${sort.dir==='desc'?'▼':'▲'}</span>` : '');
+    th.addEventListener('click', () => {
+      const s = getSort(currentKey);
+      if(s.col === col.key){
+        s.dir = s.dir === 'desc' ? 'asc' : 'desc';
+      }else{
+        s.col = col.key;
+        s.dir = 'desc';
+      }
+      saveAll(db);
+      renderPanel();
+    });
+    theadRow.appendChild(th);
+  });
+  const thDel = document.createElement('th');
+  thDel.textContent = '';
+  theadRow.appendChild(thDel);
+}
+
+// セルの中身（平均比較の色クラス＋直前計測との差分表示）を組み立てる
+function cellMarkup(curVal, prevEntry, avgVal, colKey, decimals){
+  const text = fmt(curVal, decimals);
+  const cv = parseFloat(curVal);
+
+  let cls = '';
+  if(avgVal !== null && !isNaN(cv)){
+    if(cv > avgVal) cls = 'val-up';
+    else if(cv < avgVal) cls = 'val-down';
+  }
+
+  let deltaHtml = '';
+  if(prevEntry){
+    const pv = parseFloat(prevEntry[colKey]);
+    if(!isNaN(pv) && !isNaN(cv) && pv !== cv){
+      const diff = cv - pv;
+      const sign = diff > 0 ? '+' : '−';
+      const diffStr = fmt(Math.abs(diff), decimals);
+      deltaHtml = `<span class="delta">(${sign}${diffStr})</span>`;
+    }
+  }
+
+  return {cls, html: text + deltaHtml};
+}
+
+function renderSummary(avg, rowCount){
+  summaryEl.innerHTML = '';
+
+  if(!rowCount){
+    const empty = document.createElement('div');
+    empty.className = 'summary-empty';
+    empty.textContent = 'データがありません（平均を出すには一覧に計測を追加してください）';
+    summaryEl.appendChild(empty);
+    return;
+  }
+
+  const stats = [
+    {label:'平均 電圧', value:avg.v, decimals:2, unit:'V'},
+    {label:'平均 電流', value:avg.a, decimals:2, unit:'A'},
+    {label:'平均 回転電力', value:avg.w, decimals:2, unit:'W'},
+    {label:'平均 回転数', value:avg.rpm, decimals:0, unit:'rpm'}
+  ];
+
+  stats.forEach(s => {
+    const card = document.createElement('div');
+    card.className = 'stat';
+    const valueText = s.value !== null ? fmt(s.value, s.decimals) : '—';
+    card.innerHTML = `<div class="stat-label">${s.label}</div><div class="stat-value">${valueText}<span class="stat-unit">${s.unit}</span></div>`;
+    summaryEl.appendChild(card);
+  });
+}
+
+function renderRows(){
+  const rows = getDisplayRows(currentKey);
+  const sort = getSort(currentKey);
+  const col = COLUMNS.find(c => c.key===sort.col) || COLUMNS[4];
+  const avg = computeAverages(currentKey);
+
+  rows.sort((x,y) => {
+    let a = x.latest[col.key], b = y.latest[col.key];
+    if(col.type === 'num'){ a = parseFloat(a); b = parseFloat(b); }
+    else { a = String(a||''); b = String(b||''); }
+    let cmp;
+    if(col.type === 'num') cmp = a - b;
+    else cmp = a.localeCompare(b, 'ja');
+    return sort.dir === 'desc' ? -cmp : cmp;
+  });
+
+  tbody.innerHTML = '';
+  emptyMsg.style.display = rows.length ? 'none' : 'block';
+
+  const maxRpm = Math.max(1, ...rows.map(r => parseFloat(r.latest.rpm) || 0));
+
+  rows.forEach(row => {
+    const e = row.latest;
+    const tr = document.createElement('tr');
+
+    const tdNo = document.createElement('td');
+    tdNo.className = 'no-link';
+    tdNo.innerHTML = e.no + (row.count > 1 ? `<span class="seq-badge">全${row.count}回 ▸</span>` : '');
+    tdNo.addEventListener('click', () => openHistoryModal(row.no));
+    tr.appendChild(tdNo);
+
+    const vCell = cellMarkup(e.v, row.previous, avg.v, 'v', 2);
+    const tdV = document.createElement('td');
+    tdV.className = 'num' + (vCell.cls ? ' '+vCell.cls : '');
+    tdV.innerHTML = vCell.html;
+    tr.appendChild(tdV);
+
+    const aCell = cellMarkup(e.a, row.previous, avg.a, 'a', 2);
+    const tdA = document.createElement('td');
+    tdA.className = 'num' + (aCell.cls ? ' '+aCell.cls : '');
+    tdA.innerHTML = aCell.html;
+    tr.appendChild(tdA);
+
+    const wCell = cellMarkup(e.w, row.previous, avg.w, 'w', 2);
+    const tdW = document.createElement('td');
+    tdW.className = 'num' + (wCell.cls ? ' '+wCell.cls : '');
+    tdW.innerHTML = wCell.html;
+    tr.appendChild(tdW);
+
+    const rpmCell = cellMarkup(e.rpm, row.previous, avg.rpm, 'rpm', 0);
+    const tdRpm = document.createElement('td');
+    tdRpm.className = 'num rpm-cell' + (rpmCell.cls ? ' '+rpmCell.cls : '');
+    const pct = Math.max(2, (parseFloat(e.rpm)||0) / maxRpm * 100);
+    tdRpm.innerHTML = `${rpmCell.html}<div class="rpm-bar-track"><div class="rpm-bar-fill" style="width:${pct}%"></div></div>`;
+    tr.appendChild(tdRpm);
+
+    const tdDate = document.createElement('td');
+    tdDate.className = 'num';
+    tdDate.textContent = e.date || '—';
+    tr.appendChild(tdDate);
+
+    const tdActions = document.createElement('td');
+    tdActions.className = 'action-cell';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'edit-btn';
+    editBtn.textContent = '編集';
+    editBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      enterEditMode(e);
+    });
+    tdActions.appendChild(editBtn);
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'del-btn';
+    delBtn.textContent = '削除';
+    delBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const arr = getEntries(currentKey);
+      const idx = arr.indexOf(e);
+      if(idx>-1) arr.splice(idx,1);
+      saveAll(db);
+      renderPanel();
+    });
+    tdActions.appendChild(delBtn);
+
+    tr.appendChild(tdActions);
+
+    tbody.appendChild(tr);
+  });
+
+  renderSummary(avg, rows.length);
+}
+
+/* ---------- 計測履歴モーダル ---------- */
+const modalBackdrop = document.getElementById('modal-backdrop');
+const modalTitle = document.getElementById('modal-title');
+const modalThead = document.getElementById('modal-thead');
+const modalTbody = document.getElementById('modal-tbody');
+const modalCloseBtn = document.getElementById('modal-close-btn');
+
+function openHistoryModal(no){
+  const row = getDisplayRows(currentKey).find(r => r.no === no);
+  if(!row) return;
+  modalTitle.textContent = `${no} の計測履歴（全${row.count}回）`;
+  renderModalTable(no);
+  modalBackdrop.style.display = 'flex';
+}
+
+function closeModal(){
+  modalBackdrop.style.display = 'none';
+}
+
+modalCloseBtn.addEventListener('click', closeModal);
+modalBackdrop.addEventListener('click', (ev) => {
+  if(ev.target === modalBackdrop) closeModal();
+});
+
+function renderModalTable(no){
+  const row = getDisplayRows(currentKey).find(r => r.no === no);
+  if(!row){ closeModal(); return; }
+
+  const avg = computeAverages(currentKey);
+  const history = row.history; // 新しい→古い
+
+  modalThead.innerHTML = '<th>計測日</th><th>電圧(V)</th><th>電流(A)</th><th>回転電力(W)</th><th>回転数(rpm)</th><th></th>';
+  modalTbody.innerHTML = '';
+
+  history.forEach((e, idx) => {
+    const prevEntry = history[idx+1]; // 1つ古い計測
+    const tr = document.createElement('tr');
+
+    const tdDate = document.createElement('td');
+    tdDate.textContent = (e.date || '—') + (idx===0 && row.count>1 ? '（最新）' : '');
+    tr.appendChild(tdDate);
+
+    [['v',2],['a',2],['w',2],['rpm',0]].forEach(([k,d]) => {
+      const cell = cellMarkup(e[k], prevEntry, avg[k], k, d);
+      const td = document.createElement('td');
+      td.className = 'num' + (cell.cls ? ' '+cell.cls : '');
+      td.innerHTML = cell.html;
+      tr.appendChild(td);
+    });
+
+    const tdActions = document.createElement('td');
+    tdActions.className = 'action-cell';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'edit-btn';
+    editBtn.textContent = '編集';
+    editBtn.addEventListener('click', () => {
+      closeModal();
+      enterEditMode(e);
+    });
+    tdActions.appendChild(editBtn);
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'del-btn';
+    delBtn.textContent = '削除';
+    delBtn.addEventListener('click', () => {
+      const arr = getEntries(currentKey);
+      const idx2 = arr.indexOf(e);
+      if(idx2>-1) arr.splice(idx2,1);
+      saveAll(db);
+      renderPanel();
+      const stillExists = getEntries(currentKey).some(x => x.no === no);
+      if(stillExists){
+        const updatedRow = getDisplayRows(currentKey).find(r => r.no === no);
+        modalTitle.textContent = `${no} の計測履歴（全${updatedRow.count}回）`;
+        renderModalTable(no);
+      }else{
+        closeModal();
+      }
+    });
+    tdActions.appendChild(delBtn);
+
+    tr.appendChild(tdActions);
+    modalTbody.appendChild(tr);
+  });
+}
+
+function fmt(val, decimals){
+  const n = parseFloat(val);
+  if(isNaN(n)) return val;
+  if(decimals===0) return Math.round(n).toLocaleString('ja-JP');
+  return n.toLocaleString('ja-JP', {minimumFractionDigits:0, maximumFractionDigits:2});
+}
+
+/* ---------- 追加／編集ボタン処理（formタグは使わず直接ボタンで処理） ---------- */
+const addBtn = document.getElementById('add-btn');
+const cancelEditBtn = document.getElementById('cancel-edit-btn');
+const fNo = document.getElementById('f-no');
+const fV = document.getElementById('f-v');
+const fA = document.getElementById('f-a');
+const fW = document.getElementById('f-w');
+const fRpm = document.getElementById('f-rpm');
+const fDate = document.getElementById('f-date');
+
+function todayStr(){
+  const d = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+fDate.value = todayStr();
+
+// 電圧・電流入力時に消費電力を自動計算（未入力時のみ）
+function maybeAutoCalcW(){
+  if(fW.dataset.userEdited === 'true') return;
+  const v = parseFloat(fV.value), a = parseFloat(fA.value);
+  if(!isNaN(v) && !isNaN(a)){
+    fW.value = Math.round(v*a*100)/100;
+  }
+}
+fV.addEventListener('input', maybeAutoCalcW);
+fA.addEventListener('input', maybeAutoCalcW);
+fW.addEventListener('input', () => { fW.dataset.userEdited = 'true'; });
+
+const errorBox = document.getElementById('form-error');
+const allFields = [fNo, fV, fA, fW, fRpm];
+
+function clearFieldErrors(){
+  allFields.forEach(f => f.style.borderColor = '');
+  errorBox.style.display = 'none';
+  errorBox.textContent = '';
+}
+
+// 編集中のエントリ（nullなら新規追加モード）
+let editingEntry = null;
+
+function enterEditMode(entry){
+  editingEntry = entry;
+  fNo.value = entry.no;
+  fV.value = entry.v;
+  fA.value = entry.a;
+  fW.value = entry.w;
+  fRpm.value = entry.rpm;
+  fDate.value = entry.date || todayStr();
+  fW.dataset.userEdited = 'true'; // 編集中は自動計算で上書きしない
+  addBtn.textContent = '更新';
+  cancelEditBtn.style.display = 'inline-block';
+  clearFieldErrors();
+  const formEl = document.getElementById('entry-form');
+  if(formEl && typeof formEl.scrollIntoView === 'function'){
+    try{ formEl.scrollIntoView({behavior:'smooth', block:'center'}); }catch(e){ /* ignore */ }
+  }
+  fNo.focus();
+}
+
+function exitEditMode(){
+  editingEntry = null;
+  addBtn.textContent = '＋ 追加';
+  cancelEditBtn.style.display = 'none';
+  fNo.value=''; fV.value=''; fA.value=''; fW.value=''; fRpm.value='';
+  fDate.value = todayStr();
+  fW.dataset.userEdited = 'false';
+  clearFieldErrors();
+}
+
+cancelEditBtn.addEventListener('click', exitEditMode);
+
+function addOrUpdateEntry(){
+  clearFieldErrors();
+
+  const entry = {
+    no: fNo.value.trim(),
+    v: fV.value,
+    a: fA.value,
+    w: fW.value,
+    rpm: fRpm.value,
+    date: fDate.value || todayStr()
+  };
+
+  const missing = [];
+  if(entry.no==='') missing.push(fNo);
+  if(entry.v==='') missing.push(fV);
+  if(entry.a==='') missing.push(fA);
+  if(entry.w==='') missing.push(fW);
+  if(entry.rpm==='') missing.push(fRpm);
+
+  if(missing.length){
+    missing.forEach(f => f.style.borderColor = 'var(--danger)');
+    errorBox.textContent = '未入力の項目があります。赤枠の欄を入力してください。';
+    errorBox.style.display = 'block';
+    missing[0].focus();
+    return;
+  }
+
+  if(editingEntry){
+    editingEntry.no = entry.no;
+    editingEntry.v = entry.v;
+    editingEntry.a = entry.a;
+    editingEntry.w = entry.w;
+    editingEntry.rpm = entry.rpm;
+    editingEntry.date = entry.date;
+    saveAll(db);
+    renderPanel();
+    exitEditMode();
+    return;
+  }
+
+  getEntries(currentKey).push(entry);
+  saveAll(db);
+  renderPanel();
+
+  // 次の番号入力をしやすいよう番号欄以外をクリア（計測日は当日のまま維持）
+  fV.value=''; fA.value=''; fW.value=''; fRpm.value='';
+  fW.dataset.userEdited = 'false';
+  fNo.focus();
+}
+
+addBtn.addEventListener('click', addOrUpdateEntry);
+
+// Enterキーでも追加／更新できるようにする（各入力欄で）
+[fNo, fV, fA, fW, fRpm, fDate].forEach(f => {
+  f.addEventListener('keydown', (ev) => {
+    if(ev.key === 'Enter'){
+      ev.preventDefault();
+      addOrUpdateEntry();
+    }
+  });
+});
+
+/* ---------- 初期描画 ---------- */
+renderTabs();
+renderPanel();
+</script>
+
+</body>
+</html>
