@@ -260,6 +260,14 @@
   .val-up{color:var(--danger);}
   .val-down{color:var(--blue);}
   .delta{font-size:11px;font-weight:600;margin-left:4px;color:var(--muted)!important;}
+  .balance-cell{white-space:nowrap;}
+  .balance-type-speed{color:var(--danger);}
+  .balance-type-balance{color:var(--text);}
+  .balance-type-stamina{color:var(--blue);}
+  .balance-rank{font-weight:700;margin-left:2px;}
+  .balance-rank.rank-high{color:var(--yellow);}
+  .balance-rank.rank-mid{color:var(--muted);}
+  .balance-rank.rank-low{color:var(--orange);}
   .seq-badge{
     display:inline-block;
     margin-left:6px;
@@ -779,7 +787,7 @@ const COLUMNS = [
   {key:'a',    label:'電流 (A)',   sortable:true, type:'num'},
   {key:'w',    label:'回転電力 (W)',sortable:true, type:'num'},
   {key:'rpm',  label:'回転数 (rpm)',sortable:true, type:'num'},
-  {key:'balance', label:'バランス値', sortable:true, type:'num'},
+  {key:'balance', label:'タイプ', sortable:true, type:'num'},
   {key:'date', label:'計測日',   sortable:true, type:'text'},
   {key:'owner',label:'所有者',   sortable:true, type:'text'},
 ];
@@ -802,22 +810,42 @@ function getGroupStats(key){
   return { maxRpm: Math.max(1, maxRpm), minA };
 }
 
-// バランス値＝速さ(rpm)とスタミナ(電流の少なさ)をグループ内相対値として平均した0〜10の連続値
+// 速さ(rpm)とスタミナ(電流の少なさ)をグループ内相対値(0〜10)にした内訳
 // 保存はせず、表示のたびにその場で算出する
-function getBalance(entry, stats){
+function getBalanceDetail(entry, stats){
   const rpm = parseFloat(entry.rpm);
   const a = parseFloat(entry.a);
   if(isNaN(rpm) || isNaN(a) || a <= 0) return null;
   if(!stats || stats.minA === null) return null;
   const speedScore = (rpm / stats.maxRpm) * 10;
   const staminaScore = (stats.minA / a) * 10;
-  return (speedScore + staminaScore) / 2;
+  return { speedScore, staminaScore, raw: (speedScore + staminaScore) / 2 };
 }
 
-// バランス値の表示用：1〜10の整数段階に丸める
-function getBalanceTier(raw){
-  if(raw === null) return null;
-  return Math.min(10, Math.max(1, Math.round(raw)));
+// バランス値＝速さスコアとスタミナスコアの平均（ソート・平均集計用）
+function getBalance(entry, stats){
+  const detail = getBalanceDetail(entry, stats);
+  return detail ? detail.raw : null;
+}
+
+// 表示用：速さスコアとスタミナスコアの差が大きいほど「スピード型」「スタミナ型」に、
+// 差が小さければ「バランス型」に分類し、そのタイプの中での強さを◎○△で示す
+const BALANCE_TYPE_GAP = 2; // 0〜10スケールでこれ以上の差があれば型が偏っていると判定
+function getBalanceLabel(entry, stats){
+  const detail = getBalanceDetail(entry, stats);
+  if(!detail) return null;
+  const diff = detail.speedScore - detail.staminaScore;
+  let type, typeLabel, rankBase;
+  if(diff >= BALANCE_TYPE_GAP){
+    type = 'speed'; typeLabel = 'スピード型'; rankBase = detail.speedScore;
+  }else if(diff <= -BALANCE_TYPE_GAP){
+    type = 'stamina'; typeLabel = 'スタミナ型'; rankBase = detail.staminaScore;
+  }else{
+    type = 'balance'; typeLabel = 'バランス型'; rankBase = detail.raw;
+  }
+  const rankTier = rankBase >= 8 ? 'high' : (rankBase >= 5 ? 'mid' : 'low');
+  const rank = rankTier === 'high' ? '◎' : (rankTier === 'mid' ? '○' : '△');
+  return { type, typeLabel, rank, rankTier };
 }
 
 const countEl = document.getElementById('panel-count');
@@ -1029,15 +1057,13 @@ function renderRows(){
     tr.appendChild(tdRpm);
 
     const tdBalance = document.createElement('td');
-    const balRaw = getBalance(e, groupStats);
-    if(balRaw === null){
-      tdBalance.className = 'num';
+    const balLabel = getBalanceLabel(e, groupStats);
+    if(balLabel === null){
+      tdBalance.className = 'balance-cell';
       tdBalance.textContent = '—';
     }else{
-      const balPrevRaw = row.previous ? getBalance(row.previous, groupStats) : undefined;
-      const balCell = cellMarkup(getBalanceTier(balRaw), balPrevRaw !== undefined ? getBalanceTier(balPrevRaw) : undefined, avg.balance, 0);
-      tdBalance.className = 'num' + (balCell.cls ? ' '+balCell.cls : '');
-      tdBalance.innerHTML = balCell.html;
+      tdBalance.className = 'balance-cell balance-type-' + balLabel.type;
+      tdBalance.innerHTML = `${balLabel.typeLabel} <span class="balance-rank rank-${balLabel.rankTier}">${balLabel.rank}</span>`;
     }
     tr.appendChild(tdBalance);
 
@@ -1115,7 +1141,7 @@ function renderModalTable(no){
   const groupStats = getGroupStats(currentKey);
   const history = row.history; // 新しい→古い
 
-  modalThead.innerHTML = '<th>計測日</th><th>所有者</th><th>電圧(V)</th><th>電流(A)</th><th>回転電力(W)</th><th>回転数(rpm)</th><th>バランス値(10段階)</th><th></th>';
+  modalThead.innerHTML = '<th>計測日</th><th>所有者</th><th>電圧(V)</th><th>電流(A)</th><th>回転電力(W)</th><th>回転数(rpm)</th><th>タイプ</th><th></th>';
   modalTbody.innerHTML = '';
 
   history.forEach((e, idx) => {
@@ -1139,15 +1165,13 @@ function renderModalTable(no){
     });
 
     const tdBalance = document.createElement('td');
-    const balRaw = getBalance(e, groupStats);
-    if(balRaw === null){
-      tdBalance.className = 'num';
+    const balLabel = getBalanceLabel(e, groupStats);
+    if(balLabel === null){
+      tdBalance.className = 'balance-cell';
       tdBalance.textContent = '—';
     }else{
-      const balPrevRaw = prevEntry ? getBalance(prevEntry, groupStats) : undefined;
-      const balCell = cellMarkup(getBalanceTier(balRaw), balPrevRaw !== undefined ? getBalanceTier(balPrevRaw) : undefined, avg.balance, 0);
-      tdBalance.className = 'num' + (balCell.cls ? ' '+balCell.cls : '');
-      tdBalance.innerHTML = balCell.html;
+      tdBalance.className = 'balance-cell balance-type-' + balLabel.type;
+      tdBalance.innerHTML = `${balLabel.typeLabel} <span class="balance-rank rank-${balLabel.rankTier}">${balLabel.rank}</span>`;
     }
     tr.appendChild(tdBalance);
 
