@@ -1196,6 +1196,7 @@ function renderRows(){
     delBtn.textContent = '削除';
     delBtn.addEventListener('click', (ev) => {
       ev.stopPropagation();
+      if(!confirm(`${e.no}（${e.date || '日付なし'}）の計測を削除しますか？`)) return;
       const arr = getEntries(currentKey);
       const idx = arr.indexOf(e);
       if(idx>-1) arr.splice(idx,1);
@@ -1361,6 +1362,7 @@ function renderModalTable(no){
     delBtn.className = 'del-btn';
     delBtn.textContent = '削除';
     delBtn.addEventListener('click', () => {
+      if(!confirm(`${e.no}（${e.date || '日付なし'}）の計測を削除しますか？`)) return;
       const arr = getEntries(currentKey);
       const idx2 = arr.indexOf(e);
       if(idx2>-1) arr.splice(idx2,1);
