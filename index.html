@@ -264,10 +264,6 @@
   .balance-type-speed{color:var(--danger);}
   .balance-type-balance{color:var(--text);}
   .balance-type-stamina{color:var(--blue);}
-  .balance-rank{font-weight:700;margin-left:2px;}
-  .balance-rank.rank-high{color:var(--yellow);}
-  .balance-rank.rank-mid{color:var(--muted);}
-  .balance-rank.rank-low{color:var(--orange);}
   .seq-badge{
     display:inline-block;
     margin-left:6px;
@@ -839,23 +835,21 @@ function getBalance(entry, stats){
 }
 
 // 表示用：速さスコアとスタミナスコアの差が大きいほど「スピード型」「スタミナ型」に、
-// 差が小さければ「バランス型」に分類し、そのタイプの中での強さを◎○△で示す
+// 差が小さければ「バランス型」に分類する
 const BALANCE_TYPE_GAP = 2; // 0〜10スケールでこれ以上の差があれば型が偏っていると判定
 function getBalanceLabel(entry, stats){
   const detail = getBalanceDetail(entry, stats);
   if(!detail) return null;
   const diff = detail.speedScore - detail.staminaScore;
-  let type, typeLabel, rankBase;
+  let type, typeLabel;
   if(diff >= BALANCE_TYPE_GAP){
-    type = 'speed'; typeLabel = 'スピード型'; rankBase = detail.speedScore;
+    type = 'speed'; typeLabel = 'スピード型';
   }else if(diff <= -BALANCE_TYPE_GAP){
-    type = 'stamina'; typeLabel = 'スタミナ型'; rankBase = detail.staminaScore;
+    type = 'stamina'; typeLabel = 'スタミナ型';
   }else{
-    type = 'balance'; typeLabel = 'バランス型'; rankBase = detail.raw;
+    type = 'balance'; typeLabel = 'バランス型';
   }
-  const rankTier = rankBase >= 8 ? 'high' : (rankBase >= 5 ? 'mid' : 'low');
-  const rank = rankTier === 'high' ? '◎' : (rankTier === 'mid' ? '○' : '△');
-  return { type, typeLabel, rank, rankTier };
+  return { type, typeLabel };
 }
 
 const countEl = document.getElementById('panel-count');
@@ -1090,7 +1084,7 @@ function renderRows(){
       tdBalance.textContent = '—';
     }else{
       tdBalance.className = 'balance-cell balance-type-' + balLabel.type;
-      tdBalance.innerHTML = `${balLabel.typeLabel} <span class="balance-rank rank-${balLabel.rankTier}">${balLabel.rank}</span>`;
+      tdBalance.textContent = balLabel.typeLabel;
     }
     tr.appendChild(tdBalance);
 
@@ -1211,7 +1205,7 @@ function renderModalTable(no){
       tdBalance.textContent = '—';
     }else{
       tdBalance.className = 'balance-cell balance-type-' + balLabel.type;
-      tdBalance.innerHTML = `${balLabel.typeLabel} <span class="balance-rank rank-${balLabel.rankTier}">${balLabel.rank}</span>`;
+      tdBalance.textContent = balLabel.typeLabel;
     }
     tr.appendChild(tdBalance);
 
