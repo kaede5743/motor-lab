@@ -572,21 +572,21 @@
 <div class="modal-backdrop" id="ranking-modal-backdrop">
   <div class="modal-box">
     <div class="modal-head">
-      <h3>所有者別ランキング</h3>
+      <h3 id="ranking-modal-title"></h3>
       <button class="modal-close" id="ranking-modal-close-btn">✕</button>
     </div>
     <div class="modal-body">
       <section class="ranking-section">
         <h4 class="ranking-section-title">速さ部門（回転数）</h4>
         <table class="modal-table">
-          <thead><tr><th>順位</th><th>所有者</th><th>モーター</th><th>rpm</th></tr></thead>
+          <thead><tr><th>順位</th><th>所有者</th><th>番号</th><th>rpm</th></tr></thead>
           <tbody id="ranking-speed-tbody"></tbody>
         </table>
       </section>
       <section class="ranking-section">
         <h4 class="ranking-section-title">効率部門（rpm/W）</h4>
         <table class="modal-table">
-          <thead><tr><th>順位</th><th>所有者</th><th>モーター</th><th>効率値</th></tr></thead>
+          <thead><tr><th>順位</th><th>所有者</th><th>番号</th><th>効率値</th></tr></thead>
           <tbody id="ranking-eff-tbody"></tbody>
         </table>
       </section>
@@ -855,29 +855,27 @@ function motorLabel(key){
   return (m.axis === 'single' ? '片軸' : '両軸') + ' ' + m.name;
 }
 
-// 全モーター横断で、所有者ごとの自己ベスト（最速・最効率）を集計する
-function computeOwnerRanking(){
-  const bestSpeed = new Map(); // owner -> {owner, rpm, motorKey, no}
-  const bestEff = new Map();   // owner -> {owner, eff, motorKey, no}
+// 選択中のモーター種別(key)内で、所有者ごとの自己ベスト（最速・最効率）を集計する
+function computeOwnerRanking(key){
+  const bestSpeed = new Map(); // owner -> {owner, rpm, no}
+  const bestEff = new Map();   // owner -> {owner, eff, no}
 
-  ALL_MOTORS.forEach(m => {
-    getDisplayRows(m.key).forEach(row => {
-      const entry = row.latest;
-      const owner = (entry.owner || '').trim();
-      if(!owner) return;
+  getDisplayRows(key).forEach(row => {
+    const entry = row.latest;
+    const owner = (entry.owner || '').trim();
+    if(!owner) return;
 
-      const rpm = parseFloat(entry.rpm);
-      if(!isNaN(rpm)){
-        const cur = bestSpeed.get(owner);
-        if(!cur || rpm > cur.rpm) bestSpeed.set(owner, {owner, rpm, motorKey: m.key, no: row.no});
-      }
+    const rpm = parseFloat(entry.rpm);
+    if(!isNaN(rpm)){
+      const cur = bestSpeed.get(owner);
+      if(!cur || rpm > cur.rpm) bestSpeed.set(owner, {owner, rpm, no: row.no});
+    }
 
-      const eff = getEfficiency(entry);
-      if(eff !== null){
-        const cur = bestEff.get(owner);
-        if(!cur || eff > cur.eff) bestEff.set(owner, {owner, eff, motorKey: m.key, no: row.no});
-      }
-    });
+    const eff = getEfficiency(entry);
+    if(eff !== null){
+      const cur = bestEff.get(owner);
+      if(!cur || eff > cur.eff) bestEff.set(owner, {owner, eff, no: row.no});
+    }
   });
 
   return {
@@ -1244,8 +1242,10 @@ const rankingOpenBtn = document.getElementById('ranking-open-btn');
 const rankingModalCloseBtn = document.getElementById('ranking-modal-close-btn');
 const rankingSpeedTbody = document.getElementById('ranking-speed-tbody');
 const rankingEffTbody = document.getElementById('ranking-eff-tbody');
+const rankingModalTitle = document.getElementById('ranking-modal-title');
 
 function openRankingModal(){
+  rankingModalTitle.textContent = `${motorLabel(currentKey)} 所有者別ランキング`;
   renderRankingModal();
   rankingModalBackdrop.style.display = 'flex';
 }
@@ -1274,7 +1274,7 @@ function fillRankingTbody(tbody, list, formatValue){
   }
   list.forEach((r, i) => {
     const tr = document.createElement('tr');
-    [String(i+1), r.owner, `${motorLabel(r.motorKey)} No.${r.no}`, formatValue(r)].forEach(text => {
+    [String(i+1), r.owner, r.no, formatValue(r)].forEach(text => {
       const td = document.createElement('td');
       td.textContent = text;
       tr.appendChild(td);
@@ -1284,7 +1284,7 @@ function fillRankingTbody(tbody, list, formatValue){
 }
 
 function renderRankingModal(){
-  const {speedRanking, effRanking} = computeOwnerRanking();
+  const {speedRanking, effRanking} = computeOwnerRanking(currentKey);
   fillRankingTbody(rankingSpeedTbody, speedRanking, r => fmt(r.rpm, 0));
   fillRankingTbody(rankingEffTbody, effRanking, r => fmt(r.eff, 0));
 }
