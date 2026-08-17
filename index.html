@@ -277,7 +277,7 @@
     background:var(--panel-2);
     padding:16px 18px 18px;
     display:grid;
-    grid-template-columns:repeat(4, 1fr);
+    grid-template-columns:repeat(5, 1fr);
     gap:10px;
   }
   .summary .stat{
@@ -780,6 +780,7 @@ const COLUMNS = [
   {key:'w',    label:'回転電力 (W)',sortable:true, type:'num'},
   {key:'rpm',  label:'回転数 (rpm)',sortable:true, type:'num'},
   {key:'efficiency', label:'効率値 (rpm/A)', sortable:true, type:'num'},
+  {key:'balance', label:'バランス値', sortable:true, type:'num'},
   {key:'date', label:'計測日',   sortable:true, type:'text'},
   {key:'owner',label:'所有者',   sortable:true, type:'text'},
 ];
@@ -794,6 +795,38 @@ function getEfficiency(entry){
   const a = parseFloat(entry.a);
   if(isNaN(rpm) || isNaN(a) || a === 0) return null;
   return rpm / a;
+}
+
+// 同じモーター種別グループ内での最大rpm・最小電流（バランス値の正規化基準）
+function getGroupStats(key){
+  const rows = getDisplayRows(key);
+  let maxRpm = 0;
+  let minA = null;
+  rows.forEach(r => {
+    const rpm = parseFloat(r.latest.rpm);
+    const a = parseFloat(r.latest.a);
+    if(!isNaN(rpm) && rpm > maxRpm) maxRpm = rpm;
+    if(!isNaN(a) && a > 0 && (minA === null || a < minA)) minA = a;
+  });
+  return { maxRpm: Math.max(1, maxRpm), minA };
+}
+
+// バランス値＝速さ(rpm)とスタミナ(電流の少なさ)をグループ内相対値として平均した0〜10の連続値
+// 保存はせず、表示のたびにその場で算出する
+function getBalance(entry, stats){
+  const rpm = parseFloat(entry.rpm);
+  const a = parseFloat(entry.a);
+  if(isNaN(rpm) || isNaN(a) || a <= 0) return null;
+  if(!stats || stats.minA === null) return null;
+  const speedScore = (rpm / stats.maxRpm) * 10;
+  const staminaScore = (stats.minA / a) * 10;
+  return (speedScore + staminaScore) / 2;
+}
+
+// バランス値の表示用：1〜10の整数段階に丸める
+function getBalanceTier(raw){
+  if(raw === null) return null;
+  return Math.min(10, Math.max(1, Math.round(raw)));
 }
 
 const countEl = document.getElementById('panel-count');
@@ -836,8 +869,9 @@ function getDisplayRows(key){
 // 一覧表に表示されている値（各モーターの最新計測）を元に平均を算出
 function computeAverages(key){
   const rows = getDisplayRows(key);
-  const sums = {v:0, a:0, w:0, rpm:0, efficiency:0};
-  const counts = {v:0, a:0, w:0, rpm:0, efficiency:0};
+  const stats = getGroupStats(key);
+  const sums = {v:0, a:0, w:0, rpm:0, efficiency:0, balance:0};
+  const counts = {v:0, a:0, w:0, rpm:0, efficiency:0, balance:0};
   rows.forEach(r => {
     const e = r.latest;
     ['v','a','w','rpm'].forEach(col => {
@@ -846,9 +880,11 @@ function computeAverages(key){
     });
     const eff = getEfficiency(e);
     if(eff !== null){ sums.efficiency += eff; counts.efficiency++; }
+    const bal = getBalance(e, stats);
+    if(bal !== null){ sums.balance += bal; counts.balance++; }
   });
   const avg = {};
-  ['v','a','w','rpm','efficiency'].forEach(col => { avg[col] = counts[col] ? sums[col]/counts[col] : null; });
+  ['v','a','w','rpm','efficiency','balance'].forEach(col => { avg[col] = counts[col] ? sums[col]/counts[col] : null; });
   return avg;
 }
 
@@ -927,7 +963,8 @@ function renderSummary(avg, rowCount){
     {label:'平均 電圧', value:avg.v, decimals:2, unit:'V'},
     {label:'平均 電流', value:avg.a, decimals:2, unit:'A'},
     {label:'平均 回転電力', value:avg.w, decimals:2, unit:'W'},
-    {label:'平均 回転数', value:avg.rpm, decimals:0, unit:'rpm'}
+    {label:'平均 回転数', value:avg.rpm, decimals:0, unit:'rpm'},
+    {label:'平均 バランス値', value:avg.balance, decimals:1, unit:'/10'}
   ];
 
   stats.forEach(s => {
@@ -945,9 +982,17 @@ function renderRows(){
   const col = COLUMNS.find(c => c.key===sort.col) || COLUMNS[4];
   const avg = computeAverages(currentKey);
 
+  const groupStats = getGroupStats(currentKey);
+
   rows.sort((x,y) => {
-    let a = col.key === 'efficiency' ? getEfficiency(x.latest) : x.latest[col.key];
-    let b = col.key === 'efficiency' ? getEfficiency(y.latest) : y.latest[col.key];
+    let a, b;
+    if(col.key === 'efficiency'){
+      a = getEfficiency(x.latest); b = getEfficiency(y.latest);
+    } else if(col.key === 'balance'){
+      a = getBalance(x.latest, groupStats); b = getBalance(y.latest, groupStats);
+    } else {
+      a = x.latest[col.key]; b = y.latest[col.key];
+    }
     if(col.type === 'num'){ a = parseFloat(a); b = parseFloat(b); }
     else { a = String(a||''); b = String(b||''); }
     let cmp;
@@ -959,7 +1004,7 @@ function renderRows(){
   tbody.innerHTML = '';
   emptyMsg.style.display = rows.length ? 'none' : 'block';
 
-  const maxRpm = Math.max(1, ...rows.map(r => parseFloat(r.latest.rpm) || 0));
+  const maxRpm = groupStats.maxRpm;
 
   rows.forEach(row => {
     const e = row.latest;
@@ -1008,6 +1053,19 @@ function renderRows(){
       tdEfficiency.innerHTML = effCell.html;
     }
     tr.appendChild(tdEfficiency);
+
+    const tdBalance = document.createElement('td');
+    const balRaw = getBalance(e, groupStats);
+    if(balRaw === null){
+      tdBalance.className = 'num';
+      tdBalance.textContent = '—';
+    }else{
+      const balPrevRaw = row.previous ? getBalance(row.previous, groupStats) : undefined;
+      const balCell = cellMarkup(getBalanceTier(balRaw), balPrevRaw !== undefined ? getBalanceTier(balPrevRaw) : undefined, avg.balance, 0);
+      tdBalance.className = 'num' + (balCell.cls ? ' '+balCell.cls : '');
+      tdBalance.innerHTML = balCell.html;
+    }
+    tr.appendChild(tdBalance);
 
     const tdDate = document.createElement('td');
     tdDate.className = 'num';
@@ -1080,9 +1138,10 @@ function renderModalTable(no){
   if(!row){ closeModal(); return; }
 
   const avg = computeAverages(currentKey);
+  const groupStats = getGroupStats(currentKey);
   const history = row.history; // 新しい→古い
 
-  modalThead.innerHTML = '<th>計測日</th><th>所有者</th><th>電圧(V)</th><th>電流(A)</th><th>回転電力(W)</th><th>回転数(rpm)</th><th>効率値(rpm/A)</th><th></th>';
+  modalThead.innerHTML = '<th>計測日</th><th>所有者</th><th>電圧(V)</th><th>電流(A)</th><th>回転電力(W)</th><th>回転数(rpm)</th><th>効率値(rpm/A)</th><th>バランス値(10段階)</th><th></th>';
   modalTbody.innerHTML = '';
 
   history.forEach((e, idx) => {
@@ -1117,6 +1176,19 @@ function renderModalTable(no){
       tdEfficiency.innerHTML = effCell.html;
     }
     tr.appendChild(tdEfficiency);
+
+    const tdBalance = document.createElement('td');
+    const balRaw = getBalance(e, groupStats);
+    if(balRaw === null){
+      tdBalance.className = 'num';
+      tdBalance.textContent = '—';
+    }else{
+      const balPrevRaw = prevEntry ? getBalance(prevEntry, groupStats) : undefined;
+      const balCell = cellMarkup(getBalanceTier(balRaw), balPrevRaw !== undefined ? getBalanceTier(balPrevRaw) : undefined, avg.balance, 0);
+      tdBalance.className = 'num' + (balCell.cls ? ' '+balCell.cls : '');
+      tdBalance.innerHTML = balCell.html;
+    }
+    tr.appendChild(tdBalance);
 
     const tdActions = document.createElement('td');
     tdActions.className = 'action-cell';
