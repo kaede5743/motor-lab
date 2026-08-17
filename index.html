@@ -85,6 +85,24 @@
     background:var(--panel-2);
     flex-wrap:wrap;
   }
+  .panel-head-right{display:flex;align-items:center;gap:12px;}
+  .ranking-open-btn{
+    font-family:'Rajdhani',sans-serif;
+    font-size:11px;
+    font-weight:700;
+    letter-spacing:.1em;
+    padding:6px 10px;
+    border-radius:6px;
+    border:1px solid var(--border);
+    background:none;
+    color:var(--muted);
+    cursor:pointer;
+    transition:filter .15s;
+  }
+  .ranking-open-btn:hover{filter:brightness(1.3);}
+  .ranking-section{margin-bottom:20px;}
+  .ranking-section:last-child{margin-bottom:0;}
+  .ranking-section-title{margin:0 0 8px;font-size:14px;font-weight:700;color:var(--text);}
   .panel-head .count{
     font-family:'Rajdhani',sans-serif;
     font-size:13px;
@@ -465,7 +483,10 @@
           <div class="motor-dropdown" id="motor-dropdown"></div>
         </div>
       </div>
-      <div class="count" id="panel-count"></div>
+      <div class="panel-head-right">
+        <div class="count" id="panel-count"></div>
+        <button type="button" class="ranking-open-btn" id="ranking-open-btn">ランキング</button>
+      </div>
     </div>
 
     <div class="entry" id="entry-form">
@@ -544,6 +565,31 @@
         <thead><tr id="modal-thead"></tr></thead>
         <tbody id="modal-tbody"></tbody>
       </table>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="ranking-modal-backdrop">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>所有者別ランキング</h3>
+      <button class="modal-close" id="ranking-modal-close-btn">✕</button>
+    </div>
+    <div class="modal-body">
+      <section class="ranking-section">
+        <h4 class="ranking-section-title">速さ部門（回転数）</h4>
+        <table class="modal-table">
+          <thead><tr><th>順位</th><th>所有者</th><th>モーター</th><th>rpm</th></tr></thead>
+          <tbody id="ranking-speed-tbody"></tbody>
+        </table>
+      </section>
+      <section class="ranking-section">
+        <h4 class="ranking-section-title">効率部門（rpm/W）</h4>
+        <table class="modal-table">
+          <thead><tr><th>順位</th><th>所有者</th><th>モーター</th><th>効率値</th></tr></thead>
+          <tbody id="ranking-eff-tbody"></tbody>
+        </table>
+      </section>
     </div>
   </div>
 </div>
@@ -800,6 +846,44 @@ function getEfficiency(entry){
   const w = parseFloat(entry.w);
   if(isNaN(rpm) || isNaN(w) || w === 0) return null;
   return rpm / w;
+}
+
+// key→「両軸 ハイパーダッシュ」のような表示ラベル
+function motorLabel(key){
+  const m = getMotor(key);
+  if(!m) return key;
+  return (m.axis === 'single' ? '片軸' : '両軸') + ' ' + m.name;
+}
+
+// 全モーター横断で、所有者ごとの自己ベスト（最速・最効率）を集計する
+function computeOwnerRanking(){
+  const bestSpeed = new Map(); // owner -> {owner, rpm, motorKey, no}
+  const bestEff = new Map();   // owner -> {owner, eff, motorKey, no}
+
+  ALL_MOTORS.forEach(m => {
+    getDisplayRows(m.key).forEach(row => {
+      const entry = row.latest;
+      const owner = (entry.owner || '').trim();
+      if(!owner) return;
+
+      const rpm = parseFloat(entry.rpm);
+      if(!isNaN(rpm)){
+        const cur = bestSpeed.get(owner);
+        if(!cur || rpm > cur.rpm) bestSpeed.set(owner, {owner, rpm, motorKey: m.key, no: row.no});
+      }
+
+      const eff = getEfficiency(entry);
+      if(eff !== null){
+        const cur = bestEff.get(owner);
+        if(!cur || eff > cur.eff) bestEff.set(owner, {owner, eff, motorKey: m.key, no: row.no});
+      }
+    });
+  });
+
+  return {
+    speedRanking: Array.from(bestSpeed.values()).sort((a,b) => b.rpm - a.rpm),
+    effRanking: Array.from(bestEff.values()).sort((a,b) => b.eff - a.eff),
+  };
 }
 
 // 同じモーター種別グループ内での最大rpm・最小電流（バランス値の正規化基準）
@@ -1153,6 +1237,57 @@ modalCloseBtn.addEventListener('click', closeModal);
 modalBackdrop.addEventListener('click', (ev) => {
   if(ev.target === modalBackdrop) closeModal();
 });
+
+/* ---------- 所有者別ランキングモーダル ---------- */
+const rankingModalBackdrop = document.getElementById('ranking-modal-backdrop');
+const rankingOpenBtn = document.getElementById('ranking-open-btn');
+const rankingModalCloseBtn = document.getElementById('ranking-modal-close-btn');
+const rankingSpeedTbody = document.getElementById('ranking-speed-tbody');
+const rankingEffTbody = document.getElementById('ranking-eff-tbody');
+
+function openRankingModal(){
+  renderRankingModal();
+  rankingModalBackdrop.style.display = 'flex';
+}
+
+function closeRankingModal(){
+  rankingModalBackdrop.style.display = 'none';
+}
+
+rankingOpenBtn.addEventListener('click', openRankingModal);
+rankingModalCloseBtn.addEventListener('click', closeRankingModal);
+rankingModalBackdrop.addEventListener('click', (ev) => {
+  if(ev.target === rankingModalBackdrop) closeRankingModal();
+});
+
+function fillRankingTbody(tbody, list, formatValue){
+  tbody.innerHTML = '';
+  if(!list.length){
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 4;
+    td.className = 'summary-empty';
+    td.textContent = 'データなし';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+  list.forEach((r, i) => {
+    const tr = document.createElement('tr');
+    [String(i+1), r.owner, `${motorLabel(r.motorKey)} No.${r.no}`, formatValue(r)].forEach(text => {
+      const td = document.createElement('td');
+      td.textContent = text;
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+}
+
+function renderRankingModal(){
+  const {speedRanking, effRanking} = computeOwnerRanking();
+  fillRankingTbody(rankingSpeedTbody, speedRanking, r => fmt(r.rpm, 0));
+  fillRankingTbody(rankingEffTbody, effRanking, r => fmt(r.eff, 0));
+}
 
 function renderModalTable(no){
   const row = getDisplayRows(currentKey).find(r => r.no === no);
