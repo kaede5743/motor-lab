@@ -992,8 +992,8 @@ function renderSummary(avg, rowCount){
     {label:'平均 電圧', value:avg.v, decimals:2, unit:'V'},
     {label:'平均 電流', value:avg.a, decimals:2, unit:'A'},
     {label:'平均 回転電力', value:avg.w, decimals:2, unit:'W'},
-    {label:'平均 回転数', value:avg.rpm, decimals:0, unit:'rpm'},
-    {label:'平均 バランス値', value:avg.balance, decimals:1, unit:'/10'}
+    {label:'平均 回転数', value:avg.rpm, decimals:2, unit:'rpm'},
+    {label:'平均 バランス値', value:avg.balance, decimals:2, unit:'/10'}
   ];
 
   stats.forEach(s => {
@@ -1063,7 +1063,7 @@ function renderRows(){
     tdW.innerHTML = wCell.html;
     tr.appendChild(tdW);
 
-    const rpmCell = cellMarkup(e.rpm, row.previous && row.previous.rpm, avg.rpm, 0);
+    const rpmCell = cellMarkup(e.rpm, row.previous && row.previous.rpm, avg.rpm, 2);
     const tdRpm = document.createElement('td');
     tdRpm.className = 'num rpm-cell' + (rpmCell.cls ? ' '+rpmCell.cls : '');
     const pct = Math.max(2, (parseFloat(e.rpm)||0) / maxRpm * 100);
@@ -1077,7 +1077,7 @@ function renderRows(){
       tdEfficiency.textContent = '—';
     }else{
       const effPrev = row.previous ? getEfficiency(row.previous) : undefined;
-      const effCell = cellMarkup(effVal, effPrev, avg.efficiency, 0);
+      const effCell = cellMarkup(effVal, effPrev, avg.efficiency, 2);
       tdEfficiency.className = 'num' + (effCell.cls ? ' '+effCell.cls : '');
       tdEfficiency.innerHTML = effCell.html;
     }
@@ -1183,7 +1183,7 @@ function renderModalTable(no){
     tdOwner.textContent = e.owner || '—';
     tr.appendChild(tdOwner);
 
-    [['v',2],['a',2],['w',2],['rpm',0]].forEach(([k,d]) => {
+    [['v',2],['a',2],['w',2],['rpm',2]].forEach(([k,d]) => {
       const cell = cellMarkup(e[k], prevEntry && prevEntry[k], avg[k], d);
       const td = document.createElement('td');
       td.className = 'num' + (cell.cls ? ' '+cell.cls : '');
@@ -1198,7 +1198,7 @@ function renderModalTable(no){
       tdEfficiency.textContent = '—';
     }else{
       const effPrev = prevEntry ? getEfficiency(prevEntry) : undefined;
-      const effCell = cellMarkup(effVal, effPrev, avg.efficiency, 0);
+      const effCell = cellMarkup(effVal, effPrev, avg.efficiency, 2);
       tdEfficiency.className = 'num' + (effCell.cls ? ' '+effCell.cls : '');
       tdEfficiency.innerHTML = effCell.html;
     }
@@ -1255,8 +1255,7 @@ function renderModalTable(no){
 function fmt(val, decimals){
   const n = parseFloat(val);
   if(isNaN(n)) return val;
-  if(decimals===0) return Math.round(n).toLocaleString('ja-JP');
-  return n.toLocaleString('ja-JP', {minimumFractionDigits:0, maximumFractionDigits:2});
+  return n.toLocaleString('ja-JP', {minimumFractionDigits:decimals, maximumFractionDigits:decimals});
 }
 
 /* ---------- 追加／編集ボタン処理（formタグは使わず直接ボタンで処理） ---------- */
