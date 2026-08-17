@@ -1201,6 +1201,7 @@ function renderRows(){
       if(idx>-1) arr.splice(idx,1);
       saveAll(db);
       renderPanel();
+      if(!(typeof editingEntry !== 'undefined' && editingEntry)) resetNoField();
     });
     tdActions.appendChild(delBtn);
 
@@ -1365,6 +1366,7 @@ function renderModalTable(no){
       if(idx2>-1) arr.splice(idx2,1);
       saveAll(db);
       renderPanel();
+      if(!(typeof editingEntry !== 'undefined' && editingEntry)) resetNoField();
       const stillExists = getEntries(currentKey).some(x => x.no === no);
       if(stillExists){
         const updatedRow = getDisplayRows(currentKey).find(r => r.no === no);
@@ -1405,18 +1407,20 @@ function todayStr(){
 }
 fDate.value = todayStr();
 
-// 現在のモーターの登録済み番号から続き番号（3桁ゼロ埋め）を算出
+// 現在のモーターの登録済み番号から、欠番があればその最小値を、無ければ続き番号を算出（3桁ゼロ埋め）
 function nextNoFor(key){
   const entries = getEntries(key);
-  let max = 0;
+  const used = new Set();
   entries.forEach(e => {
     const m = String(e.no || '').match(/(\d+)$/);
     if(m){
       const n = parseInt(m[1], 10);
-      if(!isNaN(n) && n > max) max = n;
+      if(!isNaN(n)) used.add(n);
     }
   });
-  return String(max + 1).padStart(3, '0');
+  let n = 1;
+  while(used.has(n)) n++;
+  return String(n).padStart(3, '0');
 }
 function resetNoField(){
   fNo.value = nextNoFor(currentKey);
