@@ -373,6 +373,18 @@
     font-family:'Noto Sans JP',sans-serif;
   }
   .del-btn:hover{border-color:var(--danger);color:var(--danger);}
+  .speed-btn{
+    background:none;
+    border:1px solid var(--border);
+    color:var(--muted);
+    border-radius:5px;
+    padding:5px 9px;
+    font-size:12px;
+    cursor:pointer;
+    font-family:'Noto Sans JP',sans-serif;
+    margin-right:6px;
+  }
+  .speed-btn:hover{border-color:var(--blue);color:var(--blue);}
 
   .no-link{
     cursor:pointer;
@@ -452,6 +464,25 @@
     text-align:center;
     color:var(--muted);
     font-size:13px;
+  }
+
+  .speed-modal-box{max-width:320px;}
+  .speed-modal-body{padding:18px;display:flex;flex-direction:column;gap:16px;}
+  .speed-modal-body select{
+    width:100%;
+    background:var(--panel-2);
+    border:1px solid var(--border);
+    color:var(--text);
+    border-radius:6px;
+    padding:8px 10px;
+    font-size:14px;
+    font-family:'Noto Sans JP',sans-serif;
+  }
+  .speed-result{
+    border-top:none;
+    background:none;
+    padding:0;
+    grid-template-columns:1fr;
   }
 
   @media (max-width:640px){
@@ -645,6 +676,34 @@
           <tbody id="ranking-speed-tbody"></tbody>
         </table>
       </section>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="speed-modal-backdrop">
+  <div class="modal-box speed-modal-box">
+    <div class="modal-head">
+      <h3 id="speed-modal-title"></h3>
+      <button class="modal-close" id="speed-modal-close-btn">✕</button>
+    </div>
+    <div class="modal-body speed-modal-body">
+      <div class="field">
+        <label>タイヤ径</label>
+        <div class="unit-wrap">
+          <input type="number" id="speed-tire" step="0.1" value="23.5" inputmode="decimal">
+          <span class="unit">mm</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>ギヤ比</label>
+        <select id="speed-gear"></select>
+      </div>
+      <div class="summary speed-result">
+        <div class="stat">
+          <div class="stat-label">推定速度</div>
+          <div class="stat-value" id="speed-result-value">-<span class="stat-unit">km/h</span></div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -1222,6 +1281,15 @@ function renderRows(){
     });
     tdActions.appendChild(editBtn);
 
+    const speedBtn = document.createElement('button');
+    speedBtn.className = 'speed-btn';
+    speedBtn.textContent = '速度';
+    speedBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openSpeedModal(e);
+    });
+    tdActions.appendChild(speedBtn);
+
     const delBtn = document.createElement('button');
     delBtn.className = 'del-btn';
     delBtn.textContent = '削除';
@@ -1319,6 +1387,60 @@ function renderRankingModal(){
   const speedRanking = computeOwnerRanking(currentKey);
   fillRankingTbody(rankingSpeedTbody, speedRanking, r => fmt(r.rpm, 0));
 }
+
+/* ---------- 速度計算モーダル ---------- */
+const GEAR_RATIOS_DOUBLE = [3.5, 3.7, 4];
+const GEAR_RATIOS_SINGLE = [3.5, 3.7, 4, 4.2, 5];
+
+const speedModalBackdrop = document.getElementById('speed-modal-backdrop');
+const speedModalTitle = document.getElementById('speed-modal-title');
+const speedModalCloseBtn = document.getElementById('speed-modal-close-btn');
+const speedTireInput = document.getElementById('speed-tire');
+const speedGearSelect = document.getElementById('speed-gear');
+const speedResultValue = document.getElementById('speed-result-value');
+let speedModalRpm = null;
+
+// 回転数(rpm) ÷ ギヤ比 ＝ タイヤの回転数(rpm)。それにタイヤの円周をかけて時速(km/h)に換算する
+function calcSpeedKmh(rpm, gearRatio, tireDiameterMm){
+  if(!rpm || !gearRatio || !tireDiameterMm) return null;
+  const wheelRpm = rpm / gearRatio;
+  const circumferenceMm = tireDiameterMm * Math.PI;
+  return wheelRpm * circumferenceMm * 60 / 1000000; // km/h
+}
+
+function updateSpeedResult(){
+  const tire = parseFloat(speedTireInput.value);
+  const gear = parseFloat(speedGearSelect.value);
+  const speed = calcSpeedKmh(speedModalRpm, gear, tire);
+  speedResultValue.innerHTML = speed === null
+    ? '-<span class="stat-unit">km/h</span>'
+    : `${fmt(speed, 2)}<span class="stat-unit">km/h</span>`;
+}
+
+function populateSpeedGearOptions(axis){
+  const ratios = axis === 'single' ? GEAR_RATIOS_SINGLE : GEAR_RATIOS_DOUBLE;
+  speedGearSelect.innerHTML = ratios.map(r => `<option value="${r}">${r}:1</option>`).join('');
+}
+
+function openSpeedModal(e){
+  speedModalRpm = parseFloat(e.rpm) || 0;
+  speedModalTitle.textContent = `${e.no} の速度計算`;
+  populateSpeedGearOptions(getMotor(currentKey).axis);
+  speedTireInput.value = '23.5';
+  updateSpeedResult();
+  speedModalBackdrop.style.display = 'flex';
+}
+
+function closeSpeedModal(){
+  speedModalBackdrop.style.display = 'none';
+}
+
+speedTireInput.addEventListener('input', updateSpeedResult);
+speedGearSelect.addEventListener('change', updateSpeedResult);
+speedModalCloseBtn.addEventListener('click', closeSpeedModal);
+speedModalBackdrop.addEventListener('click', (ev) => {
+  if(ev.target === speedModalBackdrop) closeSpeedModal();
+});
 
 function renderModalTable(no){
   const row = getDisplayRows(currentKey).find(r => r.no === no);
