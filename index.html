@@ -459,6 +459,68 @@
     .entry-actions button{flex:1;}
     h1{font-size:24px;}
     h1 span{display:block;margin:4px 0 0;}
+
+    /* 横スクロールを避けるため、テーブルを1行1カードのレイアウトに変える
+       （所有者別ランキングの表だけは列が少なく元々収まるためカード化しない） */
+    table, table.modal-table{min-width:0;}
+    .table-wrap table,
+    table.modal-table:not(.ranking-table){display:block;}
+    .table-wrap table thead,
+    table.modal-table:not(.ranking-table) thead{display:none;}
+    .table-wrap table tbody,
+    table.modal-table:not(.ranking-table) tbody{display:block;}
+    .table-wrap table tr,
+    table.modal-table:not(.ranking-table) tr{
+      display:block;
+      border:1px solid var(--border);
+      border-radius:8px;
+      padding:10px 12px;
+      margin-bottom:10px;
+      background:var(--panel-2);
+    }
+    .table-wrap table tbody tr:last-child,
+    table.modal-table:not(.ranking-table) tbody tr:last-child{margin-bottom:0;}
+    .table-wrap table td,
+    table.modal-table:not(.ranking-table) td{
+      display:block;
+      border-bottom:none;
+      padding:5px 0;
+      white-space:normal;
+    }
+    .table-wrap table td[data-label]::before,
+    table.modal-table:not(.ranking-table) td[data-label]::before{
+      content:attr(data-label);
+      display:block;
+      color:var(--muted);
+      font-size:10px;
+      font-family:'Rajdhani',sans-serif;
+      letter-spacing:.06em;
+      margin-bottom:2px;
+    }
+    .table-wrap table td:first-child,
+    table.modal-table:not(.ranking-table) td:first-child{
+      font-size:16px;
+      padding-bottom:8px;
+      margin-bottom:6px;
+      border-bottom:1px solid var(--border);
+    }
+    .table-wrap table td:first-child::before,
+    table.modal-table:not(.ranking-table) td:first-child::before{content:none;}
+    .table-wrap table td.action-cell,
+    table.modal-table:not(.ranking-table) td.action-cell{
+      text-align:right;
+      padding-top:8px;
+      margin-top:4px;
+      border-top:1px solid var(--border);
+    }
+    .rpm-bar-track{max-width:none;}
+
+    table.modal-table.ranking-table td,
+    table.modal-table.ranking-table th{
+      white-space:normal;
+      font-size:12px;
+      padding:8px 8px;
+    }
   }
 </style>
 </head>
@@ -578,7 +640,7 @@
     <div class="modal-body">
       <section class="ranking-section">
         <h4 class="ranking-section-title">速さ部門（回転数）</h4>
-        <table class="modal-table">
+        <table class="modal-table ranking-table">
           <thead><tr><th>順位</th><th>所有者</th><th>番号</th><th>rpm</th></tr></thead>
           <tbody id="ranking-speed-tbody"></tbody>
         </table>
@@ -826,6 +888,12 @@ const COLUMNS = [
   {key:'date', label:'計測日',   sortable:true, type:'text'},
   {key:'owner',label:'所有者',   sortable:true, type:'text'},
 ];
+
+// COLUMNS内のkeyに対応する見出しラベルを引く（スマホ表示のカードレイアウトで使用）
+function colLabel(key){
+  const col = COLUMNS.find(c => c.key === key);
+  return col ? col.label : '';
+}
 
 function getMotor(key){ return ALL_MOTORS.find(m => m.key===key); }
 function getEntries(key){ if(!db.entries[key]) db.entries[key]=[]; return db.entries[key]; }
@@ -1093,29 +1161,34 @@ function renderRows(){
     const vCell = cellMarkup(e.v, row.previous && row.previous.v, avg.v, 2);
     const tdV = document.createElement('td');
     tdV.className = 'num' + (vCell.cls ? ' '+vCell.cls : '');
+    tdV.dataset.label = colLabel('v');
     tdV.innerHTML = vCell.html;
     tr.appendChild(tdV);
 
     const aCell = cellMarkup(e.a, row.previous && row.previous.a, avg.a, 2);
     const tdA = document.createElement('td');
     tdA.className = 'num' + (aCell.cls ? ' '+aCell.cls : '');
+    tdA.dataset.label = colLabel('a');
     tdA.innerHTML = aCell.html;
     tr.appendChild(tdA);
 
     const wCell = cellMarkup(e.w, row.previous && row.previous.w, avg.w, 2);
     const tdW = document.createElement('td');
     tdW.className = 'num' + (wCell.cls ? ' '+wCell.cls : '');
+    tdW.dataset.label = colLabel('w');
     tdW.innerHTML = wCell.html;
     tr.appendChild(tdW);
 
     const rpmCell = cellMarkup(e.rpm, row.previous && row.previous.rpm, avg.rpm, 0);
     const tdRpm = document.createElement('td');
     tdRpm.className = 'num rpm-cell' + (rpmCell.cls ? ' '+rpmCell.cls : '');
+    tdRpm.dataset.label = colLabel('rpm');
     const pct = Math.max(2, (parseFloat(e.rpm)||0) / maxRpm * 100);
     tdRpm.innerHTML = `${rpmCell.html}<div class="rpm-bar-track"><div class="rpm-bar-fill" style="width:${pct}%"></div></div>`;
     tr.appendChild(tdRpm);
 
     const tdBalance = document.createElement('td');
+    tdBalance.dataset.label = colLabel('balance');
     const balLabel = getBalanceLabel(e, groupStats);
     if(balLabel === null){
       tdBalance.className = 'balance-cell';
@@ -1128,10 +1201,12 @@ function renderRows(){
 
     const tdDate = document.createElement('td');
     tdDate.className = 'num';
+    tdDate.dataset.label = colLabel('date');
     tdDate.textContent = e.date || '—';
     tr.appendChild(tdDate);
 
     const tdOwner = document.createElement('td');
+    tdOwner.dataset.label = colLabel('owner');
     tdOwner.textContent = e.owner || '—';
     tr.appendChild(tdOwner);
 
@@ -1261,10 +1336,12 @@ function renderModalTable(no){
     const tr = document.createElement('tr');
 
     const tdDate = document.createElement('td');
+    tdDate.dataset.label = colLabel('date');
     tdDate.textContent = (e.date || '—') + (idx===0 && row.count>1 ? '（最新）' : '');
     tr.appendChild(tdDate);
 
     const tdOwner = document.createElement('td');
+    tdOwner.dataset.label = colLabel('owner');
     tdOwner.textContent = e.owner || '—';
     tr.appendChild(tdOwner);
 
@@ -1272,11 +1349,13 @@ function renderModalTable(no){
       const cell = cellMarkup(e[k], prevEntry && prevEntry[k], avg[k], d);
       const td = document.createElement('td');
       td.className = 'num' + (cell.cls ? ' '+cell.cls : '');
+      td.dataset.label = colLabel(k);
       td.innerHTML = cell.html;
       tr.appendChild(td);
     });
 
     const tdBalance = document.createElement('td');
+    tdBalance.dataset.label = colLabel('balance');
     const balLabel = getBalanceLabel(e, groupStats);
     if(balLabel === null){
       tdBalance.className = 'balance-cell';
