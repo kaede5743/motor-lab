@@ -1,0 +1,14 @@
+{
+  "projects": {
+    "default": "kaede-race-maneger"
+  },
+  "targets": {
+    "kaede-race-maneger": {
+      "hosting": {
+        "motorlab": [
+          "kaede-motor-lab"
+        ]
+      }
+    }
+  }
+}

@@ -553,9 +553,72 @@
       padding:8px 8px;
     }
   }
+
+  /* ---------- ログインゲート ---------- */
+  .auth-overlay{
+    position:fixed;
+    inset:0;
+    z-index:1000;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:
+      radial-gradient(circle at 15% 0%, #1e2229 0%, var(--bg) 45%),
+      var(--bg);
+  }
+  .auth-box{
+    max-width:320px;
+    width:100%;
+    padding:32px;
+    text-align:center;
+  }
+  .auth-eyebrow{
+    font-family:'Rajdhani',sans-serif;
+    letter-spacing:.35em;
+    font-size:11px;
+    color:var(--yellow);
+    font-weight:600;
+    margin-bottom:8px;
+  }
+  .auth-title{font-size:22px;font-weight:900;margin:0 0 8px;}
+  .auth-sub{color:var(--muted);font-size:13px;margin:0 0 32px;}
+  .auth-btn{
+    width:100%;
+    padding:14px;
+    border-radius:var(--radius);
+    border:1px solid var(--border);
+    background:var(--yellow);
+    color:#14161a;
+    font-weight:700;
+    font-size:14px;
+    cursor:pointer;
+  }
+  .auth-btn:disabled{opacity:.6;cursor:default;}
+  .auth-error{
+    margin-top:16px;
+    padding:10px 14px;
+    border-radius:8px;
+    background:rgba(255,92,92,.12);
+    border:1px solid rgba(255,92,92,.4);
+    color:var(--danger);
+    font-size:12px;
+    display:none;
+  }
+  body.app-hidden header, body.app-hidden main{display:none;}
+  #entry-form.readonly-mode{display:none;}
 </style>
 </head>
-<body>
+<body class="app-hidden">
+
+<div class="auth-overlay" id="auth-overlay">
+  <div class="auth-box">
+    <div class="auth-eyebrow">MINI 4WD &nbsp;/&nbsp; MOTOR DATABASE</div>
+    <h1 class="auth-title">モーターラボ</h1>
+    <p class="auth-sub" id="auth-sub">race_manager に登録済みの方（運営者・本人登録済みレーサー）のみ閲覧できます</p>
+    <button type="button" class="auth-btn" id="auth-signin-btn">Googleでログイン</button>
+    <div class="auth-error" id="auth-error"></div>
+  </div>
+</div>
 
 <header>
   <div class="eyebrow">MINI 4WD &nbsp;/&nbsp; MOTOR DATABASE</div>
@@ -708,26 +771,29 @@
   </div>
 </div>
 
-<!-- Firebase（クラウド同期用）。firebaseConfigを設定していない場合は自動的に無効になります -->
+<!-- Firebase（race_managerと同じkaede-race-managerプロジェクトを使用） -->
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 
 <script>
 /* ---------- Firebase 同期設定 ---------- */
-// ▼▼▼ Firebaseコンソールで取得した firebaseConfig の中身をここに貼り付けてください ▼▼▼
+// race_manager本体・kaede-webと同じ kaede-race-maneger プロジェクトを使う。
+// この値はクライアント側の公開値（Webの設定値）で秘匿情報ではない。
 const firebaseConfig = {
-  apiKey: "AIzaSyBEqmp0k_AMN4n1_tpS0kMsfbSJ5uGxw7o",
-  authDomain: "motor-lab-69c96.firebaseapp.com",
-  projectId: "motor-lab-69c96",
-  storageBucket: "motor-lab-69c96.firebasestorage.app",
-  messagingSenderId: "694668814245",
-  appId: "1:694668814245:web:35f5bc4b0f32ef92386a4c"
+  apiKey: "AIzaSyC_zPc9W6v-WqkFyRHoiwcM1vbjar5hw0o",
+  authDomain: "kaede-race-maneger.firebaseapp.com",
+  projectId: "kaede-race-maneger",
+  storageBucket: "kaede-race-maneger.firebasestorage.app",
+  messagingSenderId: "195112929188",
+  appId: "1:195112929188:web:2239c9e2b68e902a412331"
 };
-// ▲▲▲ ここまで（貼り付けたら保存すればクラウド同期が有効になります） ▲▲▲
 
 const syncStatusEl = document.getElementById('sync-status');
 let cloudEnabled = false;
 let firestoreDocRef = null;
+let auth = null;
+let canEdit = false; // race_manager でマスター権限を持つ人だけ true になる（入力・編集・削除の可否）
 
 function setSyncStatus(text, cls){
   syncStatusEl.textContent = '● ' + text;
@@ -735,18 +801,15 @@ function setSyncStatus(text, cls){
 }
 
 try{
-  if(firebaseConfig.apiKey && firebaseConfig.apiKey !== 'YOUR_API_KEY' && typeof firebase !== 'undefined'){
-    firebase.initializeApp(firebaseConfig);
-    firestoreDocRef = firebase.firestore().collection('kaedeMotorLab').doc('main');
-    cloudEnabled = true;
-    setSyncStatus('クラウド同期 接続中…', 'on');
-  }else{
-    setSyncStatus('ローカル保存のみ（Firebase未設定）');
-  }
+  firebase.initializeApp(firebaseConfig);
+  firestoreDocRef = firebase.firestore().collection('kaedeMotorLab').doc('main');
+  auth = firebase.auth();
+  cloudEnabled = true;
+  setSyncStatus('ログインしてください');
 }catch(e){
-  console.warn('Firebase初期化に失敗しました。ローカル保存のみで動作します。', e);
+  console.warn('Firebase初期化に失敗しました。', e);
   cloudEnabled = false;
-  setSyncStatus('ローカル保存のみ（初期化エラー）', 'error');
+  setSyncStatus('初期化エラー', 'error');
 }
 
 /* ---------- モーター種別定義 ---------- */
@@ -810,8 +873,9 @@ if(!db.entries) db.entries = {};
 if(!db.sort) db.sort = {};
 if(!db.owners) db.owners = [];
 
-// 他の端末からの更新をリアルタイムに受け取る
-if(cloudEnabled){
+// 他の端末からの更新をリアルタイムに受け取る（本人登録確認が済んでから attachCloudSync() で開始する）
+function attachCloudSync(){
+  if(!cloudEnabled) return;
   firestoreDocRef.onSnapshot((docSnap) => {
     if(docSnap.metadata.hasPendingWrites){
       // 自分自身の書き込みのエコー（サーバー確認前）は無視
@@ -1272,14 +1336,16 @@ function renderRows(){
     const tdActions = document.createElement('td');
     tdActions.className = 'action-cell';
 
-    const editBtn = document.createElement('button');
-    editBtn.className = 'edit-btn';
-    editBtn.textContent = '編集';
-    editBtn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      enterEditMode(e);
-    });
-    tdActions.appendChild(editBtn);
+    if(canEdit){
+      const editBtn = document.createElement('button');
+      editBtn.className = 'edit-btn';
+      editBtn.textContent = '編集';
+      editBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        enterEditMode(e);
+      });
+      tdActions.appendChild(editBtn);
+    }
 
     const speedBtn = document.createElement('button');
     speedBtn.className = 'speed-btn';
@@ -1290,20 +1356,22 @@ function renderRows(){
     });
     tdActions.appendChild(speedBtn);
 
-    const delBtn = document.createElement('button');
-    delBtn.className = 'del-btn';
-    delBtn.textContent = '削除';
-    delBtn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      if(!confirm(`${e.no}（${e.date || '日付なし'}）の計測を削除しますか？`)) return;
-      const arr = getEntries(currentKey);
-      const idx = arr.indexOf(e);
-      if(idx>-1) arr.splice(idx,1);
-      saveAll(db);
-      renderPanel();
-      if(!(typeof editingEntry !== 'undefined' && editingEntry)) resetNoField();
-    });
-    tdActions.appendChild(delBtn);
+    if(canEdit){
+      const delBtn = document.createElement('button');
+      delBtn.className = 'del-btn';
+      delBtn.textContent = '削除';
+      delBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if(!confirm(`${e.no}（${e.date || '日付なし'}）の計測を削除しますか？`)) return;
+        const arr = getEntries(currentKey);
+        const idx = arr.indexOf(e);
+        if(idx>-1) arr.splice(idx,1);
+        saveAll(db);
+        renderPanel();
+        if(!(typeof editingEntry !== 'undefined' && editingEntry)) resetNoField();
+      });
+      tdActions.appendChild(delBtn);
+    }
 
     tr.appendChild(tdActions);
 
@@ -1491,36 +1559,38 @@ function renderModalTable(no){
     const tdActions = document.createElement('td');
     tdActions.className = 'action-cell';
 
-    const editBtn = document.createElement('button');
-    editBtn.className = 'edit-btn';
-    editBtn.textContent = '編集';
-    editBtn.addEventListener('click', () => {
-      closeModal();
-      enterEditMode(e);
-    });
-    tdActions.appendChild(editBtn);
-
-    const delBtn = document.createElement('button');
-    delBtn.className = 'del-btn';
-    delBtn.textContent = '削除';
-    delBtn.addEventListener('click', () => {
-      if(!confirm(`${e.no}（${e.date || '日付なし'}）の計測を削除しますか？`)) return;
-      const arr = getEntries(currentKey);
-      const idx2 = arr.indexOf(e);
-      if(idx2>-1) arr.splice(idx2,1);
-      saveAll(db);
-      renderPanel();
-      if(!(typeof editingEntry !== 'undefined' && editingEntry)) resetNoField();
-      const stillExists = getEntries(currentKey).some(x => x.no === no);
-      if(stillExists){
-        const updatedRow = getDisplayRows(currentKey).find(r => r.no === no);
-        modalTitle.textContent = `${no} の計測履歴（全${updatedRow.count}回）`;
-        renderModalTable(no);
-      }else{
+    if(canEdit){
+      const editBtn = document.createElement('button');
+      editBtn.className = 'edit-btn';
+      editBtn.textContent = '編集';
+      editBtn.addEventListener('click', () => {
         closeModal();
-      }
-    });
-    tdActions.appendChild(delBtn);
+        enterEditMode(e);
+      });
+      tdActions.appendChild(editBtn);
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'del-btn';
+      delBtn.textContent = '削除';
+      delBtn.addEventListener('click', () => {
+        if(!confirm(`${e.no}（${e.date || '日付なし'}）の計測を削除しますか？`)) return;
+        const arr = getEntries(currentKey);
+        const idx2 = arr.indexOf(e);
+        if(idx2>-1) arr.splice(idx2,1);
+        saveAll(db);
+        renderPanel();
+        if(!(typeof editingEntry !== 'undefined' && editingEntry)) resetNoField();
+        const stillExists = getEntries(currentKey).some(x => x.no === no);
+        if(stillExists){
+          const updatedRow = getDisplayRows(currentKey).find(r => r.no === no);
+          modalTitle.textContent = `${no} の計測履歴（全${updatedRow.count}回）`;
+          renderModalTable(no);
+        }else{
+          closeModal();
+        }
+      });
+      tdActions.appendChild(delBtn);
+    }
 
     tr.appendChild(tdActions);
     modalTbody.appendChild(tr);
@@ -1682,6 +1752,92 @@ addBtn.addEventListener('click', addOrUpdateEntry);
 
 /* ---------- 初期描画 ---------- */
 renderPanel();
+
+/* ---------- ログインゲート ---------- */
+// race_manager 登録者（運営者 allowed_users、または本人登録済みレーサー racer_emails）
+// のみ閲覧できる。入力・編集・削除はさらに絞って、race_managerでマスター権限を
+// 持つ製作者本人のみ（isMaster）に限定する。
+const authOverlay = document.getElementById('auth-overlay');
+const authSub = document.getElementById('auth-sub');
+const authSignInBtn = document.getElementById('auth-signin-btn');
+const authErrorEl = document.getElementById('auth-error');
+const bodyEl = document.body;
+
+function showAuthError(text){
+  authErrorEl.textContent = text;
+  authErrorEl.style.display = 'block';
+}
+
+function signIn(){
+  authSignInBtn.disabled = true;
+  authErrorEl.style.display = 'none';
+  const provider = new firebase.auth.GoogleAuthProvider();
+  const isLocalWeb = (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+  const signInPromise = isLocalWeb ? auth.signInWithRedirect(provider) : auth.signInWithPopup(provider);
+  signInPromise.catch((e) => {
+    authSignInBtn.disabled = false;
+    if(e && (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request')) return;
+    console.warn('ログインに失敗しました', e);
+    showAuthError('ログインに失敗しました: ' + (e && e.message ? e.message : e));
+  });
+}
+authSignInBtn.addEventListener('click', signIn);
+
+async function checkRegistration(email){
+  const db2 = firebase.firestore();
+  const staffSnap = await db2.collection('allowed_users').doc(email).get();
+  if(staffSnap.exists){
+    return { registered: true, isMaster: staffSnap.data().isMaster === true };
+  }
+  const racerSnap = await db2.collection('racer_emails').doc(email).get();
+  if(racerSnap.exists){
+    return { registered: true, isMaster: false };
+  }
+  return { registered: false, isMaster: false };
+}
+
+function unlockApp(user, master){
+  canEdit = master;
+  authOverlay.style.display = 'none';
+  bodyEl.classList.remove('app-hidden');
+  const entryForm = document.getElementById('entry-form');
+  const formError = document.getElementById('form-error');
+  if(!canEdit){
+    entryForm.classList.add('readonly-mode');
+    formError.style.display = 'none';
+  }
+  attachCloudSync();
+  renderPanel();
+}
+
+if(cloudEnabled){
+  auth.onAuthStateChanged(async (user) => {
+    if(!user){
+      authSignInBtn.disabled = false;
+      authOverlay.style.display = 'flex';
+      bodyEl.classList.add('app-hidden');
+      return;
+    }
+    if(!user.email){
+      showAuthError('メールアドレスを取得できませんでした');
+      await auth.signOut();
+      return;
+    }
+    try{
+      const result = await checkRegistration(user.email);
+      if(!result.registered){
+        showAuthError(user.email + ' はrace_managerに登録されていません');
+        await auth.signOut();
+        return;
+      }
+      unlockApp(user, result.isMaster);
+    }catch(e){
+      console.warn('登録確認に失敗しました', e);
+      showAuthError('登録確認に失敗しました。時間をおいて再度お試しください。');
+      authSignInBtn.disabled = false;
+    }
+  });
+}
 </script>
 
 </body>

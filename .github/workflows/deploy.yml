@@ -1,0 +1,22 @@
+name: Deploy to Firebase Hosting
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 静的HTML1枚だけの構成なのでビルド不要。kaede-race-maneger プロジェクトの
+      # motorlab サイトへそのままデプロイする。
+      - name: Deploy hosting (motorlab)
+        run: |
+          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$RUNNER_TEMP/sa.json"
+          npx --yes firebase-tools@latest deploy --only hosting:motorlab \
+            --project kaede-race-maneger --non-interactive
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
