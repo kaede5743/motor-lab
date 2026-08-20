@@ -66,16 +66,30 @@
   .sync-status.on{color:#5ee6a0;}
   .sync-status.error{color:var(--danger);}
   .sister-apps{
-    margin-top:10px;
+    margin-top:14px;
     display:flex;
-    gap:14px;
+    gap:10px;
   }
   .sister-apps a{
-    font-size:11px;
-    color:var(--blue);
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    font-family:'Rajdhani',sans-serif;
+    font-size:12px;
+    font-weight:700;
+    letter-spacing:.05em;
+    padding:7px 14px;
+    border-radius:20px;
+    border:1px solid var(--yellow);
+    color:var(--yellow);
     text-decoration:none;
+    transition:background .15s, color .15s;
   }
-  .sister-apps a:hover{text-decoration:underline;}
+  .sister-apps a:hover{
+    background:var(--yellow);
+    color:#14161a;
+  }
+  .sister-apps a::before{content:'→';}
 
   main{max-width:960px;margin:0 auto;padding:20px;}
 
