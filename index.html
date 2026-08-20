@@ -68,7 +68,14 @@
   .sister-apps{
     margin-top:14px;
     display:flex;
+    align-items:center;
     gap:10px;
+  }
+  .sister-apps-label{
+    font-family:'Rajdhani',sans-serif;
+    font-size:11px;
+    letter-spacing:.1em;
+    color:var(--muted);
   }
   .sister-apps a{
     display:inline-flex;
@@ -650,6 +657,7 @@
   <h1>モーターラボ<span>モーター管理</span></h1>
   <div class="sync-status" id="sync-status">● ローカル保存のみ</div>
   <div class="sister-apps">
+    <span class="sister-apps-label">race_manager登録者の連携アプリ</span>
     <a href="https://kaede-calendar.web.app" target="_blank" rel="noopener">レースカレンダー</a>
   </div>
 </header>
