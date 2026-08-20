@@ -65,6 +65,17 @@
   }
   .sync-status.on{color:#5ee6a0;}
   .sync-status.error{color:var(--danger);}
+  .sister-apps{
+    margin-top:10px;
+    display:flex;
+    gap:14px;
+  }
+  .sister-apps a{
+    font-size:11px;
+    color:var(--blue);
+    text-decoration:none;
+  }
+  .sister-apps a:hover{text-decoration:underline;}
 
   main{max-width:960px;margin:0 auto;padding:20px;}
 
@@ -624,6 +635,10 @@
   <div class="eyebrow">MINI 4WD &nbsp;/&nbsp; MOTOR DATABASE</div>
   <h1>モーターラボ<span>モーター管理</span></h1>
   <div class="sync-status" id="sync-status">● ローカル保存のみ</div>
+  <div class="sister-apps">
+    <a href="https://kaede-race-maneger.web.app" target="_blank" rel="noopener">レースマネージャー</a>
+    <a href="https://kaede-calendar.web.app" target="_blank" rel="noopener">レースカレンダー</a>
+  </div>
 </header>
 
 <main>
