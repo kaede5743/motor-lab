@@ -1564,28 +1564,87 @@ function renderRankingModal(){
 
 /* ---------- SNS投稿用共有（マスター専用） ---------- */
 // computeOwnerRanking() は getDisplayRows()（no ごとの「最新値」）を使った
-// 全期間・1モーター種別だけのベストだが、こちらは指定した期間（開始日〜終了日、
-// 両端含む）に計測されたエントリを対象に、モーター種別を問わず所有者ごとの
-// 最良rpmを1つのランキングにまとめる（夜をまたいだ計測で日付がずれていても
-// 範囲指定なら拾える）。
-function computeOverallRankingForRange(startDate, endDate){
-  const best = new Map(); // owner -> {owner, rpm, no, motorKey}
+// 全期間・現在選択中の種別だけのベストだが、こちらは指定した期間（開始日〜終了日、
+// 両端含む）に計測されたエントリを対象にする（夜をまたいだ計測で日付がずれていても
+// 範囲指定なら拾える）。モーター種別ごとに別々のランキングを作る。
+function computeOwnerRankingForRange(key, startDate, endDate){
+  const best = new Map(); // owner -> {owner, rpm, no}
+  getEntries(key).forEach(entry => {
+    const d = entry.date || '';
+    if(d < startDate || d > endDate) return;
+    const owner = (entry.owner || '').trim();
+    if(!owner) return;
+    const rpm = parseFloat(entry.rpm);
+    if(isNaN(rpm)) return;
+    const cur = best.get(owner);
+    if(!cur || rpm > cur.rpm) best.set(owner, {owner, rpm, no: entry.no});
+  });
+  return Array.from(best.values()).sort((a,b) => b.rpm - a.rpm);
+}
+
+// 指定期間にデータがあるモーター種別だけを、種別定義（ALL_MOTORS）の順に集める
+function collectShareSections(startDate, endDate){
+  const sections = [];
   ALL_MOTORS.forEach(motor => {
+    const ranking = computeOwnerRankingForRange(motor.key, startDate, endDate);
+    if(ranking.length > 0) sections.push({ motor, ranking });
+  });
+  return sections;
+}
+
+// ---- 総合ランキング（電圧を除く複数項目を加味した複合スコア） ----
+// モーター種別によって回転数のスケールが全く異なるため、種別内での相対値
+// （0〜10）に正規化してから合算する。既存のgetGroupStats()/getBalanceDetail()
+// と同じ考え方を、対象期間に絞った上で回転電力(w)にも拡張したもの。
+function getGroupStatsForRange(key, startDate, endDate){
+  let maxRpm = 0, minA = null, minW = null;
+  getEntries(key).forEach(e => {
+    const d = e.date || '';
+    if(d < startDate || d > endDate) return;
+    const rpm = parseFloat(e.rpm), a = parseFloat(e.a), w = parseFloat(e.w);
+    if(!isNaN(rpm) && rpm > maxRpm) maxRpm = rpm;
+    if(!isNaN(a) && a > 0 && (minA === null || a < minA)) minA = a;
+    if(!isNaN(w) && w > 0 && (minW === null || w < minW)) minW = w;
+  });
+  return { maxRpm: Math.max(1, maxRpm), minA, minW };
+}
+
+// 1エントリーの総合スコア（0〜10）。回転数は高いほど、電流・回転電力は低いほど
+// 加点する（電圧は計測時にかけた電源電圧という試験条件であり、モーター自体の
+// 性能を表す指標ではないため対象外）。v/a/w/rpmのいずれかが欠けている・0以下
+// ならnull（既存のgetBalanceDetail()同様、不完全なデータで不当なスコアを出さない）。
+function computeTotalScore(entry, stats){
+  const rpm = parseFloat(entry.rpm), a = parseFloat(entry.a), w = parseFloat(entry.w);
+  if(isNaN(rpm) || isNaN(a) || isNaN(w) || a <= 0 || w <= 0) return null;
+  if(stats.minA === null || stats.minW === null) return null;
+  const rpmScore = (rpm / stats.maxRpm) * 10;       // 高いほど加点
+  const currentScore = (stats.minA / a) * 10;       // 低いほど加点
+  const powerScore = (stats.minW / w) * 10;         // 低いほど加点
+  return (rpmScore + currentScore + powerScore) / 3;
+}
+
+// 所有者ごとの期間内ベスト総合スコア（全モーター種別横断）
+function computeTotalRankingForRange(startDate, endDate){
+  const best = new Map(); // owner -> {owner, score, motorKey}
+  ALL_MOTORS.forEach(motor => {
+    const stats = getGroupStatsForRange(motor.key, startDate, endDate);
     getEntries(motor.key).forEach(entry => {
       const d = entry.date || '';
       if(d < startDate || d > endDate) return;
       const owner = (entry.owner || '').trim();
       if(!owner) return;
-      const rpm = parseFloat(entry.rpm);
-      if(isNaN(rpm)) return;
+      const score = computeTotalScore(entry, stats);
+      if(score === null) return;
       const cur = best.get(owner);
-      if(!cur || rpm > cur.rpm) best.set(owner, {owner, rpm, no: entry.no, motorKey: motor.key});
+      if(!cur || score > cur.score) best.set(owner, {owner, score, motorKey: motor.key});
     });
   });
-  return Array.from(best.values()).sort((a,b) => b.rpm - a.rpm);
+  return Array.from(best.values()).sort((a,b) => b.score - a.score);
 }
 
-const MAX_SHARE_ROWS = 15;
+const SHARE_GRID_COLUMNS = 4;
+const SHARE_CELL_TOP_N = 3;
+const SHARE_TOTAL_TOP_N = 5;
 
 const shareOpenBtn = document.getElementById('share-open-btn');
 const shareModalBackdrop = document.getElementById('share-modal-backdrop');
@@ -1634,23 +1693,62 @@ function formatShareDateLabel(startDate, endDate){
     : `${format(startDate)}〜${format(endDate)}の計測ランキング`;
 }
 
+// 手描きの角丸矩形パスを作る（ctx.roundRect()に非対応な環境でも動くようarcToで自前実装）
+function drawRoundedRect(ctx, x, y, w, h, r){
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// 指定幅に収まらない場合、末尾を「…」で省略する（所有者名の長さがまちまちなため）
+function truncateText(ctx, text, maxWidth){
+  if(ctx.measureText(text).width <= maxWidth) return text;
+  let truncated = text;
+  while(truncated.length > 1 && ctx.measureText(truncated + '…').width > maxWidth){
+    truncated = truncated.slice(0, -1);
+  }
+  return truncated + '…';
+}
+
 // Canvas 2D APIで手描きの共有カード画像を作る（外部ライブラリ不使用）。
-// モーター種別ごとに分けず、期間内の所有者ベストを1つのランキングとして描画する。
-async function renderShareCanvas(startDate, endDate, ranking){
+// 横向き1枚の画像内に、(1)総合ランキング（電圧以外の複数項目を加味した複合スコアで
+// モーター種別を横断した所有者ベスト）と (2)データのあるモーター種別ごとの
+// ランキング（回転数順）をグリッド状に並べて配置する。
+async function renderShareCanvas(startDate, endDate, sections, totalRanking){
   if(document.fonts && document.fonts.ready){
     try{ await document.fonts.ready; }catch(e){ /* フォント未取得でも既定フォントで続行 */ }
   }
 
-  const width = 1080;
-  const marginX = 56;
-  const headerHeight = 190;
-  const rowHeight = 70;
-  const footerHeight = 70;
+  const width = 1600;
+  const marginX = 60;
+  const headerHeight = 150;
+  const footerHeight = 60;
+  const dividerGap = 30;
 
-  const shown = ranking.slice(0, MAX_SHARE_ROWS);
-  const omitted = ranking.length - shown.length;
-  const omittedHeight = omitted > 0 ? 40 : 0;
-  const height = headerHeight + shown.length * rowHeight + omittedHeight + footerHeight;
+  const shownTotal = totalRanking.slice(0, SHARE_TOTAL_TOP_N);
+  const totalCardWidth = 270;
+  const totalCardHeight = 130;
+  const totalCardGap = 20;
+  const totalBandTitleHeight = 44;
+  const totalBandHeight = shownTotal.length > 0
+    ? totalBandTitleHeight + totalCardHeight + dividerGap
+    : 0;
+
+  const columns = SHARE_GRID_COLUMNS;
+  const gridGap = 24;
+  const cellWidth = (width - marginX * 2 - (columns - 1) * gridGap) / columns;
+  const cellHeaderHeight = 44;
+  const cellRowHeight = 42;
+  const cellBottomPadding = 18;
+  const cellHeight = cellHeaderHeight + SHARE_CELL_TOP_N * cellRowHeight + cellBottomPadding;
+  const rows = Math.ceil(sections.length / columns);
+  const gridHeight = rows > 0 ? rows * cellHeight + (rows - 1) * gridGap : 0;
+
+  const height = headerHeight + totalBandHeight + gridHeight + footerHeight + 40;
 
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -1663,56 +1761,114 @@ async function renderShareCanvas(startDate, endDate, ranking){
 
   ctx.fillStyle = '#ffcc33';
   ctx.font = '600 24px "Rajdhani", sans-serif';
-  ctx.fillText('KAEDE SYSTEM ・ モーターラボ', marginX, 62);
+  ctx.fillText('KAEDE SYSTEM ・ モーターラボ', marginX, 56);
 
   ctx.fillStyle = '#e9e7e1';
   ctx.font = '700 40px "Noto Sans JP", sans-serif';
-  ctx.fillText(formatShareDateLabel(startDate, endDate), marginX, 120);
+  ctx.fillText(formatShareDateLabel(startDate, endDate), marginX, 112);
 
   ctx.strokeStyle = '#2c3138';
   ctx.beginPath();
-  ctx.moveTo(marginX, headerHeight - 20);
-  ctx.lineTo(width - marginX, headerHeight - 20);
+  ctx.moveTo(marginX, headerHeight - 10);
+  ctx.lineTo(width - marginX, headerHeight - 10);
   ctx.stroke();
 
-  let y = headerHeight;
-  shown.forEach((r, idx) => {
-    const rowY = y + 38;
+  let y = headerHeight + 20;
 
-    ctx.fillStyle = idx === 0 ? '#ffcc33' : '#8b909a';
-    ctx.font = '700 28px "Rajdhani", sans-serif';
-    ctx.fillText(String(idx + 1), marginX, rowY);
+  // ---- 総合ランキング帯 ----
+  if(shownTotal.length > 0){
+    ctx.fillStyle = '#ffcc33';
+    ctx.font = '700 26px "Noto Sans JP", sans-serif';
+    ctx.fillText('総合ランキング', marginX, y + 26);
+    y += totalBandTitleHeight;
 
-    ctx.fillStyle = '#e9e7e1';
-    ctx.font = '600 28px "Noto Sans JP", sans-serif';
-    ctx.fillText(r.owner, marginX + 56, rowY);
+    shownTotal.forEach((r, idx) => {
+      const cx = marginX + idx * (totalCardWidth + totalCardGap);
+      const isTop = idx === 0;
 
-    ctx.fillStyle = '#8b909a';
-    ctx.font = '500 18px "Noto Sans JP", sans-serif';
-    ctx.fillText(motorLabel(r.motorKey), marginX + 56, rowY + 24);
+      ctx.fillStyle = isTop ? '#2a2510' : '#1c1f24';
+      drawRoundedRect(ctx, cx, y, totalCardWidth, totalCardHeight, 14);
+      ctx.fill();
+      if(isTop){
+        ctx.strokeStyle = '#ffcc33';
+        ctx.lineWidth = 2;
+        drawRoundedRect(ctx, cx, y, totalCardWidth, totalCardHeight, 14);
+        ctx.stroke();
+      }
 
-    ctx.fillStyle = '#4fc3f7';
-    ctx.font = '700 30px "Rajdhani", sans-serif';
-    const rpmText = `${fmt(r.rpm, 0)} rpm`;
-    const rpmWidth = ctx.measureText(rpmText).width;
-    ctx.fillText(rpmText, width - marginX - rpmWidth, rowY);
+      const padX = 18;
+      ctx.fillStyle = isTop ? '#ffcc33' : '#8b909a';
+      ctx.font = '700 22px "Rajdhani", sans-serif';
+      ctx.fillText(String(idx + 1), cx + padX, y + 34);
 
-    y += rowHeight;
-    if(idx < shown.length - 1){
-      ctx.strokeStyle = '#20242a';
-      ctx.beginPath();
-      ctx.moveTo(marginX, y);
-      ctx.lineTo(width - marginX, y);
-      ctx.stroke();
-    }
-  });
+      ctx.fillStyle = '#e9e7e1';
+      ctx.font = '600 24px "Noto Sans JP", sans-serif';
+      const ownerText = truncateText(ctx, r.owner, totalCardWidth - padX * 2 - 30);
+      ctx.fillText(ownerText, cx + padX + 30, y + 34);
 
-  if(omitted > 0){
-    ctx.fillStyle = '#8b909a';
-    ctx.font = '500 20px "Noto Sans JP", sans-serif';
-    ctx.fillText(`ほか ${omitted} 名`, marginX, y + 26);
-    y += omittedHeight;
+      ctx.fillStyle = '#8b909a';
+      ctx.font = '500 15px "Noto Sans JP", sans-serif';
+      const motorText = truncateText(ctx, motorLabel(r.motorKey), totalCardWidth - padX * 2);
+      ctx.fillText(motorText, cx + padX, y + 62);
+
+      ctx.fillStyle = '#4fc3f7';
+      ctx.font = '700 26px "Rajdhani", sans-serif';
+      ctx.fillText(`${fmt(r.score, 1)} pt`, cx + padX, y + 100);
+    });
+
+    y += totalCardHeight + dividerGap;
+
+    ctx.strokeStyle = '#2c3138';
+    ctx.beginPath();
+    ctx.moveTo(marginX, y - dividerGap / 2);
+    ctx.lineTo(width - marginX, y - dividerGap / 2);
+    ctx.stroke();
   }
+
+  // ---- モーター種別ごとのランキング（グリッド配置） ----
+  sections.forEach((section, idx) => {
+    const col = idx % columns;
+    const row = Math.floor(idx / columns);
+    const cx = marginX + col * (cellWidth + gridGap);
+    const cy = y + row * (cellHeight + gridGap);
+
+    ctx.fillStyle = '#1c1f24';
+    drawRoundedRect(ctx, cx, cy, cellWidth, cellHeight, 12);
+    ctx.fill();
+
+    const padX = 18;
+    ctx.fillStyle = '#e9e7e1';
+    ctx.font = '700 20px "Noto Sans JP", sans-serif';
+    const titleText = truncateText(ctx, motorLabel(section.motor.key), cellWidth - padX * 2);
+    ctx.fillText(titleText, cx + padX, cy + 30);
+
+    ctx.strokeStyle = '#2c3138';
+    ctx.beginPath();
+    ctx.moveTo(cx + padX, cy + cellHeaderHeight - 8);
+    ctx.lineTo(cx + cellWidth - padX, cy + cellHeaderHeight - 8);
+    ctx.stroke();
+
+    const shown = section.ranking.slice(0, SHARE_CELL_TOP_N);
+    shown.forEach((r, rIdx) => {
+      const rowY = cy + cellHeaderHeight + rIdx * cellRowHeight + 28;
+
+      ctx.fillStyle = rIdx === 0 ? '#ffcc33' : '#8b909a';
+      ctx.font = '700 18px "Rajdhani", sans-serif';
+      ctx.fillText(String(rIdx + 1), cx + padX, rowY);
+
+      ctx.fillStyle = '#e9e7e1';
+      ctx.font = '600 18px "Noto Sans JP", sans-serif';
+      const nameMaxWidth = cellWidth - padX * 2 - 26 - 90;
+      const ownerText = truncateText(ctx, r.owner, nameMaxWidth);
+      ctx.fillText(ownerText, cx + padX + 26, rowY);
+
+      ctx.fillStyle = '#4fc3f7';
+      ctx.font = '700 18px "Rajdhani", sans-serif';
+      const rpmText = `${fmt(r.rpm, 0)}`;
+      const rpmWidth = ctx.measureText(rpmText).width;
+      ctx.fillText(rpmText, cx + cellWidth - padX - rpmWidth, rowY);
+    });
+  });
 
   ctx.fillStyle = '#8b909a';
   ctx.font = '500 18px "Rajdhani", sans-serif';
@@ -1734,8 +1890,9 @@ async function createShare(){
     setShareStatus('終了日は開始日以降の日付にしてください', true);
     return;
   }
-  const ranking = computeOverallRankingForRange(startDate, endDate);
-  if(ranking.length === 0){
+  const sections = collectShareSections(startDate, endDate);
+  const totalRanking = computeTotalRankingForRange(startDate, endDate);
+  if(sections.length === 0 && totalRanking.length === 0){
     setShareStatus('この期間の計測データがありません', true);
     shareResultEl.style.display = 'none';
     return;
@@ -1746,7 +1903,7 @@ async function createShare(){
   shareResultEl.style.display = 'none';
 
   try{
-    const canvas = await renderShareCanvas(startDate, endDate, ranking);
+    const canvas = await renderShareCanvas(startDate, endDate, sections, totalRanking);
     const dataUrl = canvas.toDataURL('image/png');
 
     const callable = functionsInstance.httpsCallable('createMotorLabShare');
