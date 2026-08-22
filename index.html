@@ -138,6 +138,8 @@
 
   .share-modal-body{padding:18px;display:flex;flex-direction:column;gap:12px;}
   .share-modal-desc{margin:0;font-size:12px;color:var(--muted);line-height:1.6;}
+  .share-date-range{display:flex;gap:10px;}
+  .share-date-range .field{flex:1;}
   .share-status{
     font-size:13px;
     padding:8px 10px;
@@ -818,10 +820,16 @@
       <button class="modal-close" id="share-modal-close-btn">✕</button>
     </div>
     <div class="modal-body share-modal-body">
-      <p class="share-modal-desc">指定した日付に計測されたデータをもとに、SNS投稿用のランキング画像を作成します。作成したリンクは7日後に自動的に無効になります。</p>
-      <div class="field">
-        <label>対象の計測日</label>
-        <input type="date" id="share-date-input">
+      <p class="share-modal-desc">指定した期間に計測されたデータをもとに、モーター種別を問わず全体でのSNS投稿用ランキング画像を作成します。夜をまたいだ計測にも対応できるよう、開始日〜終了日で範囲指定できます（同じ日を指定すれば1日だけの計測になります）。作成したリンクは7日後に自動的に無効になります。</p>
+      <div class="share-date-range">
+        <div class="field">
+          <label>開始日</label>
+          <input type="date" id="share-start-date-input">
+        </div>
+        <div class="field">
+          <label>終了日</label>
+          <input type="date" id="share-end-date-input">
+        </div>
       </div>
       <button type="button" class="add" id="share-create-btn">画像を作成</button>
       <div id="share-status" class="share-status" style="display:none;"></div>
@@ -1555,26 +1563,35 @@ function renderRankingModal(){
 }
 
 /* ---------- SNS投稿用共有（マスター専用） ---------- */
-// computeOwnerRanking() は getDisplayRows()（no ごとの「最新値」）を使った全期間の
-// ベストだが、こちらは指定した1日に計測されたエントリだけを対象にする。
-function computeOwnerRankingForDate(key, date){
-  const bestSpeed = new Map(); // owner -> {owner, rpm, no}
-  getEntries(key).forEach(entry => {
-    if((entry.date || '') !== date) return;
-    const owner = (entry.owner || '').trim();
-    if(!owner) return;
-    const rpm = parseFloat(entry.rpm);
-    if(isNaN(rpm)) return;
-    const cur = bestSpeed.get(owner);
-    if(!cur || rpm > cur.rpm) bestSpeed.set(owner, {owner, rpm, no: entry.no});
+// computeOwnerRanking() は getDisplayRows()（no ごとの「最新値」）を使った
+// 全期間・1モーター種別だけのベストだが、こちらは指定した期間（開始日〜終了日、
+// 両端含む）に計測されたエントリを対象に、モーター種別を問わず所有者ごとの
+// 最良rpmを1つのランキングにまとめる（夜をまたいだ計測で日付がずれていても
+// 範囲指定なら拾える）。
+function computeOverallRankingForRange(startDate, endDate){
+  const best = new Map(); // owner -> {owner, rpm, no, motorKey}
+  ALL_MOTORS.forEach(motor => {
+    getEntries(motor.key).forEach(entry => {
+      const d = entry.date || '';
+      if(d < startDate || d > endDate) return;
+      const owner = (entry.owner || '').trim();
+      if(!owner) return;
+      const rpm = parseFloat(entry.rpm);
+      if(isNaN(rpm)) return;
+      const cur = best.get(owner);
+      if(!cur || rpm > cur.rpm) best.set(owner, {owner, rpm, no: entry.no, motorKey: motor.key});
+    });
   });
-  return Array.from(bestSpeed.values()).sort((a,b) => b.rpm - a.rpm);
+  return Array.from(best.values()).sort((a,b) => b.rpm - a.rpm);
 }
+
+const MAX_SHARE_ROWS = 15;
 
 const shareOpenBtn = document.getElementById('share-open-btn');
 const shareModalBackdrop = document.getElementById('share-modal-backdrop');
 const shareModalCloseBtn = document.getElementById('share-modal-close-btn');
-const shareDateInput = document.getElementById('share-date-input');
+const shareStartDateInput = document.getElementById('share-start-date-input');
+const shareEndDateInput = document.getElementById('share-end-date-input');
 const shareCreateBtn = document.getElementById('share-create-btn');
 const shareStatusEl = document.getElementById('share-status');
 const shareResultEl = document.getElementById('share-result');
@@ -1585,7 +1602,9 @@ const shareDownloadLink = document.getElementById('share-download-link');
 const shareExpiryNote = document.getElementById('share-expiry-note');
 
 function openShareModal(){
-  shareDateInput.value = todayStr();
+  const today = todayStr();
+  shareStartDateInput.value = today;
+  shareEndDateInput.value = today;
   shareStatusEl.style.display = 'none';
   shareResultEl.style.display = 'none';
   shareModalBackdrop.style.display = 'flex';
@@ -1605,26 +1624,19 @@ function setShareStatus(text, isError){
   shareStatusEl.style.display = text ? 'block' : 'none';
 }
 
-function formatShareDateLabel(dateStr){
-  const d = new Date(dateStr + 'T00:00:00');
-  if(isNaN(d.getTime())) return dateStr;
-  return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日の計測ランキング`;
-}
-
-// 指定日にデータがあるモーター種別だけを、種別定義（ALL_MOTORS）の順に集める
-function collectShareSections(date){
-  const sections = [];
-  ALL_MOTORS.forEach(motor => {
-    const ranking = computeOwnerRankingForDate(motor.key, date);
-    if(ranking.length > 0){
-      sections.push({ motor, ranking: ranking.slice(0, 5) });
-    }
-  });
-  return sections;
+function formatShareDateLabel(startDate, endDate){
+  const format = (s) => {
+    const d = new Date(s + 'T00:00:00');
+    return isNaN(d.getTime()) ? s : `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`;
+  };
+  return startDate === endDate
+    ? `${format(startDate)}の計測ランキング`
+    : `${format(startDate)}〜${format(endDate)}の計測ランキング`;
 }
 
 // Canvas 2D APIで手描きの共有カード画像を作る（外部ライブラリ不使用）。
-async function renderShareCanvas(date, sections){
+// モーター種別ごとに分けず、期間内の所有者ベストを1つのランキングとして描画する。
+async function renderShareCanvas(startDate, endDate, ranking){
   if(document.fonts && document.fonts.ready){
     try{ await document.fonts.ready; }catch(e){ /* フォント未取得でも既定フォントで続行 */ }
   }
@@ -1632,16 +1644,13 @@ async function renderShareCanvas(date, sections){
   const width = 1080;
   const marginX = 56;
   const headerHeight = 190;
-  const sectionTitleHeight = 56;
-  const rowHeight = 54;
-  const sectionGap = 28;
+  const rowHeight = 70;
   const footerHeight = 70;
 
-  const sectionsHeight = sections.reduce(
-    (sum, s) => sum + sectionTitleHeight + s.ranking.length * rowHeight + sectionGap,
-    0,
-  );
-  const height = headerHeight + sectionsHeight + footerHeight;
+  const shown = ranking.slice(0, MAX_SHARE_ROWS);
+  const omitted = ranking.length - shown.length;
+  const omittedHeight = omitted > 0 ? 40 : 0;
+  const height = headerHeight + shown.length * rowHeight + omittedHeight + footerHeight;
 
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -1658,41 +1667,52 @@ async function renderShareCanvas(date, sections){
 
   ctx.fillStyle = '#e9e7e1';
   ctx.font = '700 40px "Noto Sans JP", sans-serif';
-  ctx.fillText(formatShareDateLabel(date), marginX, 120);
+  ctx.fillText(formatShareDateLabel(startDate, endDate), marginX, 120);
+
+  ctx.strokeStyle = '#2c3138';
+  ctx.beginPath();
+  ctx.moveTo(marginX, headerHeight - 20);
+  ctx.lineTo(width - marginX, headerHeight - 20);
+  ctx.stroke();
 
   let y = headerHeight;
-  sections.forEach(section => {
-    ctx.strokeStyle = '#2c3138';
-    ctx.beginPath();
-    ctx.moveTo(marginX, y);
-    ctx.lineTo(width - marginX, y);
-    ctx.stroke();
+  shown.forEach((r, idx) => {
+    const rowY = y + 38;
+
+    ctx.fillStyle = idx === 0 ? '#ffcc33' : '#8b909a';
+    ctx.font = '700 28px "Rajdhani", sans-serif';
+    ctx.fillText(String(idx + 1), marginX, rowY);
 
     ctx.fillStyle = '#e9e7e1';
-    ctx.font = '700 28px "Noto Sans JP", sans-serif';
-    ctx.fillText(motorLabel(section.motor.key), marginX, y + 40);
-    y += sectionTitleHeight;
+    ctx.font = '600 28px "Noto Sans JP", sans-serif';
+    ctx.fillText(r.owner, marginX + 56, rowY);
 
-    section.ranking.forEach((r, idx) => {
-      const rowY = y + 36;
-      ctx.fillStyle = idx === 0 ? '#ffcc33' : '#8b909a';
-      ctx.font = '700 26px "Rajdhani", sans-serif';
-      ctx.fillText(String(idx + 1), marginX, rowY);
+    ctx.fillStyle = '#8b909a';
+    ctx.font = '500 18px "Noto Sans JP", sans-serif';
+    ctx.fillText(motorLabel(r.motorKey), marginX + 56, rowY + 24);
 
-      ctx.fillStyle = '#e9e7e1';
-      ctx.font = '600 26px "Noto Sans JP", sans-serif';
-      ctx.fillText(r.owner, marginX + 48, rowY);
+    ctx.fillStyle = '#4fc3f7';
+    ctx.font = '700 30px "Rajdhani", sans-serif';
+    const rpmText = `${fmt(r.rpm, 0)} rpm`;
+    const rpmWidth = ctx.measureText(rpmText).width;
+    ctx.fillText(rpmText, width - marginX - rpmWidth, rowY);
 
-      ctx.fillStyle = '#4fc3f7';
-      ctx.font = '700 28px "Rajdhani", sans-serif';
-      const rpmText = `${fmt(r.rpm, 0)} rpm`;
-      const rpmWidth = ctx.measureText(rpmText).width;
-      ctx.fillText(rpmText, width - marginX - rpmWidth, rowY);
-
-      y += rowHeight;
-    });
-    y += sectionGap;
+    y += rowHeight;
+    if(idx < shown.length - 1){
+      ctx.strokeStyle = '#20242a';
+      ctx.beginPath();
+      ctx.moveTo(marginX, y);
+      ctx.lineTo(width - marginX, y);
+      ctx.stroke();
+    }
   });
+
+  if(omitted > 0){
+    ctx.fillStyle = '#8b909a';
+    ctx.font = '500 20px "Noto Sans JP", sans-serif';
+    ctx.fillText(`ほか ${omitted} 名`, marginX, y + 26);
+    y += omittedHeight;
+  }
 
   ctx.fillStyle = '#8b909a';
   ctx.font = '500 18px "Rajdhani", sans-serif';
@@ -1704,14 +1724,19 @@ async function renderShareCanvas(date, sections){
 }
 
 async function createShare(){
-  const date = shareDateInput.value;
-  if(!date){
-    setShareStatus('日付を選択してください', true);
+  const startDate = shareStartDateInput.value;
+  const endDate = shareEndDateInput.value;
+  if(!startDate || !endDate){
+    setShareStatus('開始日・終了日を選択してください', true);
     return;
   }
-  const sections = collectShareSections(date);
-  if(sections.length === 0){
-    setShareStatus('この日付の計測データがありません', true);
+  if(startDate > endDate){
+    setShareStatus('終了日は開始日以降の日付にしてください', true);
+    return;
+  }
+  const ranking = computeOverallRankingForRange(startDate, endDate);
+  if(ranking.length === 0){
+    setShareStatus('この期間の計測データがありません', true);
     shareResultEl.style.display = 'none';
     return;
   }
@@ -1721,11 +1746,11 @@ async function createShare(){
   shareResultEl.style.display = 'none';
 
   try{
-    const canvas = await renderShareCanvas(date, sections);
+    const canvas = await renderShareCanvas(startDate, endDate, ranking);
     const dataUrl = canvas.toDataURL('image/png');
 
     const callable = functionsInstance.httpsCallable('createMotorLabShare');
-    const result = await callable({ date, imageBase64: dataUrl });
+    const result = await callable({ startDate, endDate, imageBase64: dataUrl });
     const { imageUrl, expiresAt } = result.data;
 
     shareResultImg.src = dataUrl;
