@@ -135,6 +135,37 @@
   .ranking-section{margin-bottom:20px;}
   .ranking-section:last-child{margin-bottom:0;}
   .ranking-section-title{margin:0 0 8px;font-size:14px;font-weight:700;color:var(--text);}
+
+  .share-modal-body{padding:18px;display:flex;flex-direction:column;gap:12px;}
+  .share-modal-desc{margin:0;font-size:12px;color:var(--muted);line-height:1.6;}
+  .share-status{
+    font-size:13px;
+    padding:8px 10px;
+    border-radius:6px;
+    background:#20242a;
+    color:var(--muted);
+  }
+  .share-status.error{color:var(--danger);}
+  .share-result{display:flex;flex-direction:column;gap:10px;}
+  .share-result img{
+    width:100%;
+    border-radius:8px;
+    border:1px solid var(--border);
+  }
+  .share-result-row{display:flex;gap:8px;}
+  .share-result-row input{
+    flex:1;
+    min-width:0;
+    background:#14171b;
+    border:1px solid var(--border);
+    color:var(--text);
+    border-radius:6px;
+    padding:9px 10px;
+    font-size:13px;
+    font-family:'Rajdhani',sans-serif;
+  }
+  a.edit-btn{display:inline-block;text-decoration:none;text-align:center;}
+  .share-expiry-note{margin:0;font-size:11px;color:var(--muted);}
   .panel-head .count{
     font-family:'Rajdhani',sans-serif;
     font-size:13px;
@@ -678,6 +709,7 @@
       <div class="panel-head-right">
         <div class="count" id="panel-count"></div>
         <button type="button" class="ranking-open-btn" id="ranking-open-btn">ランキング</button>
+        <button type="button" class="ranking-open-btn" id="share-open-btn" style="display:none;">SNS投稿用を作成</button>
       </div>
     </div>
 
@@ -779,6 +811,33 @@
   </div>
 </div>
 
+<div class="modal-backdrop" id="share-modal-backdrop">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>SNS投稿用を作成</h3>
+      <button class="modal-close" id="share-modal-close-btn">✕</button>
+    </div>
+    <div class="modal-body share-modal-body">
+      <p class="share-modal-desc">指定した日付に計測されたデータをもとに、SNS投稿用のランキング画像を作成します。作成したリンクは7日後に自動的に無効になります。</p>
+      <div class="field">
+        <label>対象の計測日</label>
+        <input type="date" id="share-date-input">
+      </div>
+      <button type="button" class="add" id="share-create-btn">画像を作成</button>
+      <div id="share-status" class="share-status" style="display:none;"></div>
+      <div id="share-result" class="share-result" style="display:none;">
+        <img id="share-result-img" alt="SNS投稿用画像プレビュー">
+        <div class="share-result-row">
+          <input type="text" id="share-result-url" readonly>
+          <button type="button" class="edit-btn" id="share-copy-btn">リンクをコピー</button>
+        </div>
+        <a id="share-download-link" class="edit-btn" download="motor-lab-share.png">画像をダウンロード</a>
+        <p class="share-expiry-note" id="share-expiry-note"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="speed-modal-backdrop">
   <div class="modal-box speed-modal-box">
     <div class="modal-head">
@@ -811,6 +870,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-functions-compat.js"></script>
 
 <script>
 /* ---------- Firebase 同期設定 ---------- */
@@ -829,6 +889,7 @@ const syncStatusEl = document.getElementById('sync-status');
 let cloudEnabled = false;
 let firestoreDocRef = null;
 let auth = null;
+let functionsInstance = null;
 let canEdit = false; // race_manager でマスター権限を持つ人だけ true になる（入力・編集・削除の可否）
 
 function setSyncStatus(text, cls){
@@ -840,6 +901,7 @@ try{
   firebase.initializeApp(firebaseConfig);
   firestoreDocRef = firebase.firestore().collection('kaedeMotorLab').doc('main');
   auth = firebase.auth();
+  functionsInstance = firebase.app().functions('asia-northeast1');
   cloudEnabled = true;
   setSyncStatus('ログインしてください');
 }catch(e){
@@ -1492,6 +1554,209 @@ function renderRankingModal(){
   fillRankingTbody(rankingSpeedTbody, speedRanking, r => fmt(r.rpm, 0));
 }
 
+/* ---------- SNS投稿用共有（マスター専用） ---------- */
+// computeOwnerRanking() は getDisplayRows()（no ごとの「最新値」）を使った全期間の
+// ベストだが、こちらは指定した1日に計測されたエントリだけを対象にする。
+function computeOwnerRankingForDate(key, date){
+  const bestSpeed = new Map(); // owner -> {owner, rpm, no}
+  getEntries(key).forEach(entry => {
+    if((entry.date || '') !== date) return;
+    const owner = (entry.owner || '').trim();
+    if(!owner) return;
+    const rpm = parseFloat(entry.rpm);
+    if(isNaN(rpm)) return;
+    const cur = bestSpeed.get(owner);
+    if(!cur || rpm > cur.rpm) bestSpeed.set(owner, {owner, rpm, no: entry.no});
+  });
+  return Array.from(bestSpeed.values()).sort((a,b) => b.rpm - a.rpm);
+}
+
+const shareOpenBtn = document.getElementById('share-open-btn');
+const shareModalBackdrop = document.getElementById('share-modal-backdrop');
+const shareModalCloseBtn = document.getElementById('share-modal-close-btn');
+const shareDateInput = document.getElementById('share-date-input');
+const shareCreateBtn = document.getElementById('share-create-btn');
+const shareStatusEl = document.getElementById('share-status');
+const shareResultEl = document.getElementById('share-result');
+const shareResultImg = document.getElementById('share-result-img');
+const shareResultUrlInput = document.getElementById('share-result-url');
+const shareCopyBtn = document.getElementById('share-copy-btn');
+const shareDownloadLink = document.getElementById('share-download-link');
+const shareExpiryNote = document.getElementById('share-expiry-note');
+
+function openShareModal(){
+  shareDateInput.value = todayStr();
+  shareStatusEl.style.display = 'none';
+  shareResultEl.style.display = 'none';
+  shareModalBackdrop.style.display = 'flex';
+}
+function closeShareModal(){
+  shareModalBackdrop.style.display = 'none';
+}
+shareOpenBtn.addEventListener('click', openShareModal);
+shareModalCloseBtn.addEventListener('click', closeShareModal);
+shareModalBackdrop.addEventListener('click', (ev) => {
+  if(ev.target === shareModalBackdrop) closeShareModal();
+});
+
+function setShareStatus(text, isError){
+  shareStatusEl.textContent = text;
+  shareStatusEl.className = 'share-status' + (isError ? ' error' : '');
+  shareStatusEl.style.display = text ? 'block' : 'none';
+}
+
+function formatShareDateLabel(dateStr){
+  const d = new Date(dateStr + 'T00:00:00');
+  if(isNaN(d.getTime())) return dateStr;
+  return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日の計測ランキング`;
+}
+
+// 指定日にデータがあるモーター種別だけを、種別定義（ALL_MOTORS）の順に集める
+function collectShareSections(date){
+  const sections = [];
+  ALL_MOTORS.forEach(motor => {
+    const ranking = computeOwnerRankingForDate(motor.key, date);
+    if(ranking.length > 0){
+      sections.push({ motor, ranking: ranking.slice(0, 5) });
+    }
+  });
+  return sections;
+}
+
+// Canvas 2D APIで手描きの共有カード画像を作る（外部ライブラリ不使用）。
+async function renderShareCanvas(date, sections){
+  if(document.fonts && document.fonts.ready){
+    try{ await document.fonts.ready; }catch(e){ /* フォント未取得でも既定フォントで続行 */ }
+  }
+
+  const width = 1080;
+  const marginX = 56;
+  const headerHeight = 190;
+  const sectionTitleHeight = 56;
+  const rowHeight = 54;
+  const sectionGap = 28;
+  const footerHeight = 70;
+
+  const sectionsHeight = sections.reduce(
+    (sum, s) => sum + sectionTitleHeight + s.ranking.length * rowHeight + sectionGap,
+    0,
+  );
+  const height = headerHeight + sectionsHeight + footerHeight;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#14161a';
+  ctx.fillRect(0, 0, width, height);
+  ctx.textBaseline = 'alphabetic';
+
+  ctx.fillStyle = '#ffcc33';
+  ctx.font = '600 24px "Rajdhani", sans-serif';
+  ctx.fillText('KAEDE SYSTEM ・ モーターラボ', marginX, 62);
+
+  ctx.fillStyle = '#e9e7e1';
+  ctx.font = '700 40px "Noto Sans JP", sans-serif';
+  ctx.fillText(formatShareDateLabel(date), marginX, 120);
+
+  let y = headerHeight;
+  sections.forEach(section => {
+    ctx.strokeStyle = '#2c3138';
+    ctx.beginPath();
+    ctx.moveTo(marginX, y);
+    ctx.lineTo(width - marginX, y);
+    ctx.stroke();
+
+    ctx.fillStyle = '#e9e7e1';
+    ctx.font = '700 28px "Noto Sans JP", sans-serif';
+    ctx.fillText(motorLabel(section.motor.key), marginX, y + 40);
+    y += sectionTitleHeight;
+
+    section.ranking.forEach((r, idx) => {
+      const rowY = y + 36;
+      ctx.fillStyle = idx === 0 ? '#ffcc33' : '#8b909a';
+      ctx.font = '700 26px "Rajdhani", sans-serif';
+      ctx.fillText(String(idx + 1), marginX, rowY);
+
+      ctx.fillStyle = '#e9e7e1';
+      ctx.font = '600 26px "Noto Sans JP", sans-serif';
+      ctx.fillText(r.owner, marginX + 48, rowY);
+
+      ctx.fillStyle = '#4fc3f7';
+      ctx.font = '700 28px "Rajdhani", sans-serif';
+      const rpmText = `${fmt(r.rpm, 0)} rpm`;
+      const rpmWidth = ctx.measureText(rpmText).width;
+      ctx.fillText(rpmText, width - marginX - rpmWidth, rowY);
+
+      y += rowHeight;
+    });
+    y += sectionGap;
+  });
+
+  ctx.fillStyle = '#8b909a';
+  ctx.font = '500 18px "Rajdhani", sans-serif';
+  const footerText = 'kaede-motor-lab.web.app';
+  const footerWidth = ctx.measureText(footerText).width;
+  ctx.fillText(footerText, (width - footerWidth) / 2, height - 30);
+
+  return canvas;
+}
+
+async function createShare(){
+  const date = shareDateInput.value;
+  if(!date){
+    setShareStatus('日付を選択してください', true);
+    return;
+  }
+  const sections = collectShareSections(date);
+  if(sections.length === 0){
+    setShareStatus('この日付の計測データがありません', true);
+    shareResultEl.style.display = 'none';
+    return;
+  }
+
+  shareCreateBtn.disabled = true;
+  setShareStatus('画像を作成しています...', false);
+  shareResultEl.style.display = 'none';
+
+  try{
+    const canvas = await renderShareCanvas(date, sections);
+    const dataUrl = canvas.toDataURL('image/png');
+
+    const callable = functionsInstance.httpsCallable('createMotorLabShare');
+    const result = await callable({ date, imageBase64: dataUrl });
+    const { imageUrl, expiresAt } = result.data;
+
+    shareResultImg.src = dataUrl;
+    shareResultUrlInput.value = imageUrl;
+    shareDownloadLink.href = dataUrl;
+    const expiryDate = new Date(expiresAt);
+    shareExpiryNote.textContent = isNaN(expiryDate.getTime())
+      ? 'このリンクは7日後に自動的に無効になります。'
+      : `このリンクは ${expiryDate.getFullYear()}年${expiryDate.getMonth()+1}月${expiryDate.getDate()}日 に自動的に無効になります。`;
+    shareResultEl.style.display = 'flex';
+    setShareStatus('', false);
+  }catch(e){
+    console.warn('SNS投稿用画像の作成に失敗しました', e);
+    setShareStatus('作成に失敗しました: ' + (e && e.message ? e.message : e), true);
+  }finally{
+    shareCreateBtn.disabled = false;
+  }
+}
+shareCreateBtn.addEventListener('click', createShare);
+
+shareCopyBtn.addEventListener('click', async () => {
+  try{
+    await navigator.clipboard.writeText(shareResultUrlInput.value);
+    shareCopyBtn.textContent = 'コピーしました';
+    setTimeout(() => { shareCopyBtn.textContent = 'リンクをコピー'; }, 1500);
+  }catch(e){
+    shareResultUrlInput.select();
+    document.execCommand('copy');
+  }
+});
+
 /* ---------- 速度計算モーダル ---------- */
 const GEAR_RATIOS_DOUBLE = [3.5, 3.7, 4];
 const GEAR_RATIOS_SINGLE = [3.5, 3.7, 4, 4.2, 5];
@@ -1842,6 +2107,8 @@ function unlockApp(user, master){
     entryForm.classList.add('readonly-mode');
     formError.style.display = 'none';
   }
+  // SNS投稿用の作成はマスターのみ（race_managerの製作者本人）に限定する。
+  shareOpenBtn.style.display = canEdit ? '' : 'none';
   attachCloudSync();
   renderPanel();
 }
