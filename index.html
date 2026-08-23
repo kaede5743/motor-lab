@@ -1602,32 +1602,42 @@ function collectShareSections(startDate, endDate){
 // モーター種別によって回転数・電流・回転電力のスケールが全く異なるため、種別内での
 // 相対値（0〜10）に正規化してから合算する。既存のgetGroupStats()/getBalanceDetail()
 // と同じ考え方を、対象期間に絞った上で回転電力(w)にも拡張したもの。
+// 回転電力(maxW)は計測器（RP LOAD CONTROLLER）の仕様上、電圧×電流の単純な消費電力
+// ではなく、負荷をかけた状態でのトルク×回転数から求めた「回転（機械的）出力」に
+// 近いと考えられる（詳細は下のcomputeTotalScoreのコメント参照）ため、電流とは逆に
+// 高いほど良い値として最大値を基準にする。
 function getGroupStatsForRange(key, startDate, endDate){
-  let maxRpm = 0, minA = null, minW = null;
+  let maxRpm = 0, minA = null, maxW = 0;
   getEntries(key).forEach(e => {
     const d = e.date || '';
     if(d < startDate || d > endDate) return;
     const rpm = parseFloat(e.rpm), a = parseFloat(e.a), w = parseFloat(e.w);
     if(!isNaN(rpm) && rpm > maxRpm) maxRpm = rpm;
     if(!isNaN(a) && a > 0 && (minA === null || a < minA)) minA = a;
-    if(!isNaN(w) && w > 0 && (minW === null || w < minW)) minW = w;
+    if(!isNaN(w) && w > maxW) maxW = w;
   });
-  return { maxRpm: Math.max(1, maxRpm), minA, minW };
+  return { maxRpm: Math.max(1, maxRpm), minA, maxW: Math.max(1, maxW) };
 }
 
-// 1エントリーの総合スコア（0〜10）。回転数は高いほど、電流・回転電力は低いほど
+// 1エントリーの総合スコア（0〜10）。回転数・回転電力は高いほど、電流は低いほど
 // 加点する（電圧は計測時にかけた電源電圧という試験条件であり、モーター自体の
-// 性能を表す指標ではないため対象外）。v/a/w/rpmのいずれかが欠けている・0以下
-// ならnull（既存のgetBalanceDetail()同様、不完全なデータで不当なスコアを出さない）。
+// 性能を表す指標ではないため対象外）。
+// 回転電力(w)は電圧×電流と一致しない（実測データ上、同じ比率にならない）ことと、
+// 計測器が「LOAD CONTROLLER」＝負荷をかけてトルクを算出する機構を持つ製品である
+// ことから、単純な消費電力ではなく「負荷をかけた状態での回転（機械的）出力
+// （トルク×回転数）」に近い値だと考えられる。そのため電流（消費側の指標）とは逆に、
+// 高いほど加点する。
+// v/a/w/rpmのいずれかが欠けている・0以下ならnull（既存のgetBalanceDetail()同様、
+// 不完全なデータで不当なスコアを出さない）。
 // 内訳（rpmScore/currentScore/powerScore）も含めて返す（呼び出し元で保持するのみで
 // 共有画像には合成スコアだけを表示する）
 function computeTotalScore(entry, stats){
   const rpm = parseFloat(entry.rpm), a = parseFloat(entry.a), w = parseFloat(entry.w);
   if(isNaN(rpm) || isNaN(a) || isNaN(w) || a <= 0 || w <= 0) return null;
-  if(stats.minA === null || stats.minW === null) return null;
+  if(stats.minA === null) return null;
   const rpmScore = (rpm / stats.maxRpm) * 10;       // 高いほど加点
   const currentScore = (stats.minA / a) * 10;       // 低いほど加点
-  const powerScore = (stats.minW / w) * 10;         // 低いほど加点
+  const powerScore = (w / stats.maxW) * 10;         // 高いほど加点
   const score = (rpmScore + currentScore + powerScore) / 3;
   return { score, rpmScore, currentScore, powerScore };
 }
