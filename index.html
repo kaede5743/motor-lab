@@ -831,6 +831,10 @@
           <input type="date" id="share-end-date-input">
         </div>
       </div>
+      <div class="field">
+        <label>タイトル（任意）</label>
+        <input type="text" id="share-title-input" maxlength="40" placeholder="未入力の場合は期間から自動生成されます">
+      </div>
       <button type="button" class="add" id="share-create-btn">画像を作成</button>
       <div id="share-status" class="share-status" style="display:none;"></div>
       <div id="share-result" class="share-result" style="display:none;">
@@ -1663,6 +1667,7 @@ const shareModalBackdrop = document.getElementById('share-modal-backdrop');
 const shareModalCloseBtn = document.getElementById('share-modal-close-btn');
 const shareStartDateInput = document.getElementById('share-start-date-input');
 const shareEndDateInput = document.getElementById('share-end-date-input');
+const shareTitleInput = document.getElementById('share-title-input');
 const shareCreateBtn = document.getElementById('share-create-btn');
 const shareStatusEl = document.getElementById('share-status');
 const shareResultEl = document.getElementById('share-result');
@@ -1676,6 +1681,7 @@ function openShareModal(){
   const today = todayStr();
   shareStartDateInput.value = today;
   shareEndDateInput.value = today;
+  shareTitleInput.value = '';
   shareStatusEl.style.display = 'none';
   shareResultEl.style.display = 'none';
   shareModalBackdrop.style.display = 'flex';
@@ -1695,14 +1701,19 @@ function setShareStatus(text, isError){
   shareStatusEl.style.display = text ? 'block' : 'none';
 }
 
-function formatShareDateLabel(startDate, endDate){
+function formatShareDateRangeLabel(startDate, endDate){
   const format = (s) => {
     const d = new Date(s + 'T00:00:00');
     return isNaN(d.getTime()) ? s : `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`;
   };
   return startDate === endDate
-    ? `${format(startDate)}の計測ランキング`
-    : `${format(startDate)}〜${format(endDate)}の計測ランキング`;
+    ? format(startDate)
+    : `${format(startDate)}〜${format(endDate)}`;
+}
+
+// タイトル未入力時に見出しとして使う既定文言（従来の挙動を踏襲）
+function formatShareDateLabel(startDate, endDate){
+  return `${formatShareDateRangeLabel(startDate, endDate)}の計測ランキング`;
 }
 
 // 手描きの角丸矩形パスを作る（ctx.roundRect()に非対応な環境でも動くようarcToで自前実装）
@@ -1736,14 +1747,17 @@ function truncateText(ctx, text, maxWidth){
 // 縦向き1枚の画像内に、データのあるモーター種別ごとのランキングを上から順に
 // 縦積みで配置する。各行は電圧・電流・回転電力・回転数の実測値に加えて、
 // それらを合成した総合スコア（総合ランキングの順位決定にも使う値そのもの）を表示する。
-async function renderShareCanvas(startDate, endDate, sections){
+// titleを指定した場合は見出しをその文字列にし、期間は見出しの下に小さく添える
+// （未指定なら従来通り期間から自動生成した文言を見出しにする）。
+async function renderShareCanvas(startDate, endDate, sections, title){
   if(document.fonts && document.fonts.ready){
     try{ await document.fonts.ready; }catch(e){ /* フォント未取得でも既定フォントで続行 */ }
   }
 
   const width = 1080;
   const marginX = 56;
-  const headerHeight = 150;
+  const trimmedTitle = (title || '').trim();
+  const headerHeight = trimmedTitle ? 178 : 150;
   const footerHeight = 60;
 
   // ---- モーター種別ごとのランキング（縦積みセクション）の列位置とサイズ ----
@@ -1781,9 +1795,18 @@ async function renderShareCanvas(startDate, endDate, sections){
   ctx.font = '600 24px "Rajdhani", sans-serif';
   ctx.fillText('KAEDE SYSTEM ・ モーターラボ', marginX, 56);
 
+  const headlineMaxWidth = width - marginX * 2;
   ctx.fillStyle = '#e9e7e1';
   ctx.font = '700 36px "Noto Sans JP", sans-serif';
-  ctx.fillText(formatShareDateLabel(startDate, endDate), marginX, 112);
+  const headlineText = trimmedTitle || formatShareDateLabel(startDate, endDate);
+  ctx.fillText(truncateText(ctx, headlineText, headlineMaxWidth), marginX, 112);
+
+  if(trimmedTitle){
+    ctx.fillStyle = '#8b909a';
+    ctx.font = '500 20px "Noto Sans JP", sans-serif';
+    const rangeText = formatShareDateRangeLabel(startDate, endDate);
+    ctx.fillText(truncateText(ctx, rangeText, headlineMaxWidth), marginX, 142);
+  }
 
   ctx.strokeStyle = '#2c3138';
   ctx.beginPath();
@@ -1869,6 +1892,7 @@ async function renderShareCanvas(startDate, endDate, sections){
 async function createShare(){
   const startDate = shareStartDateInput.value;
   const endDate = shareEndDateInput.value;
+  const title = shareTitleInput.value;
   if(!startDate || !endDate){
     setShareStatus('開始日・終了日を選択してください', true);
     return;
@@ -1889,7 +1913,7 @@ async function createShare(){
   shareResultEl.style.display = 'none';
 
   try{
-    const canvas = await renderShareCanvas(startDate, endDate, sections);
+    const canvas = await renderShareCanvas(startDate, endDate, sections, title);
     const dataUrl = canvas.toDataURL('image/png');
 
     const callable = functionsInstance.httpsCallable('createMotorLabShare');
