@@ -843,7 +843,7 @@
           <input type="text" id="share-result-url" readonly>
           <button type="button" class="edit-btn" id="share-copy-btn">リンクをコピー</button>
         </div>
-        <a id="share-download-link" class="edit-btn" download="motor-lab-share.png">画像をダウンロード</a>
+        <button type="button" id="share-download-btn" class="edit-btn">画像をダウンロード</button>
         <p class="share-expiry-note" id="share-expiry-note"></p>
       </div>
     </div>
@@ -1674,7 +1674,8 @@ const shareResultEl = document.getElementById('share-result');
 const shareResultImg = document.getElementById('share-result-img');
 const shareResultUrlInput = document.getElementById('share-result-url');
 const shareCopyBtn = document.getElementById('share-copy-btn');
-const shareDownloadLink = document.getElementById('share-download-link');
+const shareDownloadBtn = document.getElementById('share-download-btn');
+let shareImageBlob = null; // 直近生成したPNG画像（ダウンロード/共有ボタン用）
 const shareExpiryNote = document.getElementById('share-expiry-note');
 
 function openShareModal(){
@@ -1682,6 +1683,7 @@ function openShareModal(){
   shareStartDateInput.value = today;
   shareEndDateInput.value = today;
   shareTitleInput.value = '';
+  shareImageBlob = null;
   shareStatusEl.style.display = 'none';
   shareResultEl.style.display = 'none';
   shareModalBackdrop.style.display = 'flex';
@@ -1915,6 +1917,7 @@ async function createShare(){
   try{
     const canvas = await renderShareCanvas(startDate, endDate, sections, title);
     const dataUrl = canvas.toDataURL('image/png');
+    shareImageBlob = await (await fetch(dataUrl)).blob();
 
     const callable = functionsInstance.httpsCallable('createMotorLabShare');
     const result = await callable({ startDate, endDate, imageBase64: dataUrl });
@@ -1922,7 +1925,6 @@ async function createShare(){
 
     shareResultImg.src = dataUrl;
     shareResultUrlInput.value = imageUrl;
-    shareDownloadLink.href = dataUrl;
     const expiryDate = new Date(expiresAt);
     shareExpiryNote.textContent = isNaN(expiryDate.getTime())
       ? 'このリンクは7日後に自動的に無効になります。'
@@ -1937,6 +1939,26 @@ async function createShare(){
   }
 }
 shareCreateBtn.addEventListener('click', createShare);
+
+// iOS Safariなどは<a download>がdata/blob URLのダウンロードに対応しておらず、
+// ボタンを押しても何も起きないことがあるため使わない。対応環境では
+// Web Share API（共有シートの「画像を保存」）を優先し、非対応環境では
+// 新しいタブで画像を開いて長押し/右クリックで保存してもらう。
+shareDownloadBtn.addEventListener('click', async () => {
+  if(!shareImageBlob) return;
+  const file = new File([shareImageBlob], 'motor-lab-share.png', { type: 'image/png' });
+  if(navigator.canShare && navigator.canShare({ files: [file] })){
+    try{
+      await navigator.share({ files: [file] });
+      return;
+    }catch(e){
+      if(e && e.name === 'AbortError') return; // 共有シートをキャンセルした場合は何もしない
+    }
+  }
+  const blobUrl = URL.createObjectURL(shareImageBlob);
+  window.open(blobUrl, '_blank');
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+});
 
 shareCopyBtn.addEventListener('click', async () => {
   try{
