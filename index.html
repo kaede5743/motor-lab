@@ -1568,7 +1568,7 @@ function renderRankingModal(){
 // 両端含む）に計測されたエントリを対象にする（夜をまたいだ計測で日付がずれていても
 // 範囲指定なら拾える）。モーター種別ごとに別々のランキングを作る。
 function computeOwnerRankingForRange(key, startDate, endDate){
-  const best = new Map(); // owner -> {owner, rpm, no}
+  const best = new Map(); // owner -> {owner, rpm, v, a, w, no}
   getEntries(key).forEach(entry => {
     const d = entry.date || '';
     if(d < startDate || d > endDate) return;
@@ -1577,7 +1577,9 @@ function computeOwnerRankingForRange(key, startDate, endDate){
     const rpm = parseFloat(entry.rpm);
     if(isNaN(rpm)) return;
     const cur = best.get(owner);
-    if(!cur || rpm > cur.rpm) best.set(owner, {owner, rpm, no: entry.no});
+    if(!cur || rpm > cur.rpm){
+      best.set(owner, { owner, rpm, v: entry.v, a: entry.a, w: entry.w, no: entry.no });
+    }
   });
   return Array.from(best.values()).sort((a,b) => b.rpm - a.rpm);
 }
@@ -1613,6 +1615,7 @@ function getGroupStatsForRange(key, startDate, endDate){
 // 加点する（電圧は計測時にかけた電源電圧という試験条件であり、モーター自体の
 // 性能を表す指標ではないため対象外）。v/a/w/rpmのいずれかが欠けている・0以下
 // ならnull（既存のgetBalanceDetail()同様、不完全なデータで不当なスコアを出さない）。
+// 内訳（rpmScore/currentScore/powerScore）も含めて返す（共有画像で内訳表示に使う）
 function computeTotalScore(entry, stats){
   const rpm = parseFloat(entry.rpm), a = parseFloat(entry.a), w = parseFloat(entry.w);
   if(isNaN(rpm) || isNaN(a) || isNaN(w) || a <= 0 || w <= 0) return null;
@@ -1620,12 +1623,13 @@ function computeTotalScore(entry, stats){
   const rpmScore = (rpm / stats.maxRpm) * 10;       // 高いほど加点
   const currentScore = (stats.minA / a) * 10;       // 低いほど加点
   const powerScore = (stats.minW / w) * 10;         // 低いほど加点
-  return (rpmScore + currentScore + powerScore) / 3;
+  const score = (rpmScore + currentScore + powerScore) / 3;
+  return { score, rpmScore, currentScore, powerScore };
 }
 
 // 所有者ごとの期間内ベスト総合スコア（全モーター種別横断）
 function computeTotalRankingForRange(startDate, endDate){
-  const best = new Map(); // owner -> {owner, score, motorKey}
+  const best = new Map(); // owner -> {owner, motorKey, score, rpmScore, currentScore, powerScore}
   ALL_MOTORS.forEach(motor => {
     const stats = getGroupStatsForRange(motor.key, startDate, endDate);
     getEntries(motor.key).forEach(entry => {
@@ -1633,16 +1637,17 @@ function computeTotalRankingForRange(startDate, endDate){
       if(d < startDate || d > endDate) return;
       const owner = (entry.owner || '').trim();
       if(!owner) return;
-      const score = computeTotalScore(entry, stats);
-      if(score === null) return;
+      const result = computeTotalScore(entry, stats);
+      if(result === null) return;
       const cur = best.get(owner);
-      if(!cur || score > cur.score) best.set(owner, {owner, score, motorKey: motor.key});
+      if(!cur || result.score > cur.score){
+        best.set(owner, { owner, motorKey: motor.key, ...result });
+      }
     });
   });
   return Array.from(best.values()).sort((a,b) => b.score - a.score);
 }
 
-const SHARE_GRID_COLUMNS = 4;
 const SHARE_CELL_TOP_N = 3;
 const SHARE_TOTAL_TOP_N = 5;
 
@@ -1704,6 +1709,12 @@ function drawRoundedRect(ctx, x, y, w, h, r){
   ctx.closePath();
 }
 
+// 数値化できない場合は「—」を表示する（V/A/Wが未入力のエントリー向け）
+function fmtOrDash(val, decimals){
+  const n = parseFloat(val);
+  return isNaN(n) ? '—' : fmt(val, decimals);
+}
+
 // 指定幅に収まらない場合、末尾を「…」で省略する（所有者名の長さがまちまちなため）
 function truncateText(ctx, text, maxWidth){
   if(ctx.measureText(text).width <= maxWidth) return text;
@@ -1715,40 +1726,50 @@ function truncateText(ctx, text, maxWidth){
 }
 
 // Canvas 2D APIで手描きの共有カード画像を作る（外部ライブラリ不使用）。
-// 横向き1枚の画像内に、(1)総合ランキング（電圧以外の複数項目を加味した複合スコアで
-// モーター種別を横断した所有者ベスト）と (2)データのあるモーター種別ごとの
-// ランキング（回転数順）をグリッド状に並べて配置する。
+// 縦向き1枚の画像内に、(1)総合ランキング（電圧以外の複数項目を加味した複合スコアで
+// モーター種別を横断した所有者ベスト。内訳も表示）と (2)データのあるモーター種別
+// ごとのランキング（回転数順。電圧・電流・回転電力の実測値も表示）を上から順に
+// 縦積みで配置する。
 async function renderShareCanvas(startDate, endDate, sections, totalRanking){
   if(document.fonts && document.fonts.ready){
     try{ await document.fonts.ready; }catch(e){ /* フォント未取得でも既定フォントで続行 */ }
   }
 
-  const width = 1600;
-  const marginX = 60;
+  const width = 1080;
+  const marginX = 56;
   const headerHeight = 150;
   const footerHeight = 60;
   const dividerGap = 30;
+  const dataWidth = width - marginX * 2;
 
+  // ---- 総合ランキング帯のサイズ ----
   const shownTotal = totalRanking.slice(0, SHARE_TOTAL_TOP_N);
-  const totalCardWidth = 270;
-  const totalCardHeight = 130;
-  const totalCardGap = 20;
   const totalBandTitleHeight = 44;
+  const totalRowHeight = 92;
   const totalBandHeight = shownTotal.length > 0
-    ? totalBandTitleHeight + totalCardHeight + dividerGap
+    ? totalBandTitleHeight + shownTotal.length * totalRowHeight + dividerGap
     : 0;
 
-  const columns = SHARE_GRID_COLUMNS;
-  const gridGap = 24;
-  const cellWidth = (width - marginX * 2 - (columns - 1) * gridGap) / columns;
-  const cellHeaderHeight = 44;
-  const cellRowHeight = 42;
-  const cellBottomPadding = 18;
-  const cellHeight = cellHeaderHeight + SHARE_CELL_TOP_N * cellRowHeight + cellBottomPadding;
-  const rows = Math.ceil(sections.length / columns);
-  const gridHeight = rows > 0 ? rows * cellHeight + (rows - 1) * gridGap : 0;
+  // ---- モーター種別ごとのランキング（縦積みセクション）の列位置とサイズ ----
+  const valueColWidth = 112;
+  const colGap = 14;
+  const numericAreaWidth = valueColWidth * 4 + colGap * 3;
+  const numericAreaLeft = width - marginX - numericAreaWidth;
+  const colLefts = [0, 1, 2, 3].map(i => numericAreaLeft + i * (valueColWidth + colGap));
+  const ownerX = marginX + 34;
+  const ownerMaxWidth = numericAreaLeft - ownerX - 16;
 
-  const height = headerHeight + totalBandHeight + gridHeight + footerHeight + 40;
+  const sectionTitleAreaHeight = 40;
+  const miniHeaderAreaHeight = 28;
+  const sectionRowHeight = 36;
+  const sectionBottomPadding = 22;
+  const sectionShownCounts = sections.map(s => Math.min(s.ranking.length, SHARE_CELL_TOP_N));
+  const sectionHeights = sectionShownCounts.map(count =>
+    sectionTitleAreaHeight + miniHeaderAreaHeight + count * sectionRowHeight + sectionBottomPadding
+  );
+  const gridHeight = sectionHeights.reduce((sum, h) => sum + h, 0);
+
+  const height = headerHeight + totalBandHeight + gridHeight + footerHeight + 20;
 
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -1764,7 +1785,7 @@ async function renderShareCanvas(startDate, endDate, sections, totalRanking){
   ctx.fillText('KAEDE SYSTEM ・ モーターラボ', marginX, 56);
 
   ctx.fillStyle = '#e9e7e1';
-  ctx.font = '700 40px "Noto Sans JP", sans-serif';
+  ctx.font = '700 36px "Noto Sans JP", sans-serif';
   ctx.fillText(formatShareDateLabel(startDate, endDate), marginX, 112);
 
   ctx.strokeStyle = '#2c3138';
@@ -1783,40 +1804,47 @@ async function renderShareCanvas(startDate, endDate, sections, totalRanking){
     y += totalBandTitleHeight;
 
     shownTotal.forEach((r, idx) => {
-      const cx = marginX + idx * (totalCardWidth + totalCardGap);
+      const rowTop = y + idx * totalRowHeight;
       const isTop = idx === 0;
 
-      ctx.fillStyle = isTop ? '#2a2510' : '#1c1f24';
-      drawRoundedRect(ctx, cx, y, totalCardWidth, totalCardHeight, 14);
-      ctx.fill();
       if(isTop){
+        ctx.fillStyle = '#2a2510';
+        drawRoundedRect(ctx, marginX - 16, rowTop - 10, dataWidth + 32, totalRowHeight - 14, 14);
+        ctx.fill();
         ctx.strokeStyle = '#ffcc33';
         ctx.lineWidth = 2;
-        drawRoundedRect(ctx, cx, y, totalCardWidth, totalCardHeight, 14);
+        drawRoundedRect(ctx, marginX - 16, rowTop - 10, dataWidth + 32, totalRowHeight - 14, 14);
         ctx.stroke();
       }
 
-      const padX = 18;
+      const mainY = rowTop + 30;
       ctx.fillStyle = isTop ? '#ffcc33' : '#8b909a';
-      ctx.font = '700 22px "Rajdhani", sans-serif';
-      ctx.fillText(String(idx + 1), cx + padX, y + 34);
-
-      ctx.fillStyle = '#e9e7e1';
-      ctx.font = '600 24px "Noto Sans JP", sans-serif';
-      const ownerText = truncateText(ctx, r.owner, totalCardWidth - padX * 2 - 30);
-      ctx.fillText(ownerText, cx + padX + 30, y + 34);
-
-      ctx.fillStyle = '#8b909a';
-      ctx.font = '500 15px "Noto Sans JP", sans-serif';
-      const motorText = truncateText(ctx, motorLabel(r.motorKey), totalCardWidth - padX * 2);
-      ctx.fillText(motorText, cx + padX, y + 62);
+      ctx.font = '700 24px "Rajdhani", sans-serif';
+      ctx.fillText(String(idx + 1), marginX, mainY);
 
       ctx.fillStyle = '#4fc3f7';
       ctx.font = '700 26px "Rajdhani", sans-serif';
-      ctx.fillText(`${fmt(r.score, 1)} pt`, cx + padX, y + 100);
+      const scoreText = `${fmt(r.score, 1)} pt`;
+      const scoreWidth = ctx.measureText(scoreText).width;
+      ctx.fillText(scoreText, width - marginX - scoreWidth, mainY);
+
+      ctx.fillStyle = '#e9e7e1';
+      ctx.font = '600 24px "Noto Sans JP", sans-serif';
+      const ownerText = truncateText(ctx, r.owner, dataWidth - 40 - scoreWidth - 20);
+      ctx.fillText(ownerText, marginX + 40, mainY);
+
+      ctx.fillStyle = '#8b909a';
+      ctx.font = '500 15px "Noto Sans JP", sans-serif';
+      const motorText = truncateText(ctx, motorLabel(r.motorKey), dataWidth - 40);
+      ctx.fillText(motorText, marginX + 40, rowTop + 54);
+
+      ctx.fillStyle = '#6fbf9a';
+      ctx.font = '500 15px "Noto Sans JP", sans-serif';
+      const breakdownText = `回転数 ${fmt(r.rpmScore, 1)} ・ 電流 ${fmt(r.currentScore, 1)} ・ 電力 ${fmt(r.powerScore, 1)}`;
+      ctx.fillText(breakdownText, marginX + 40, rowTop + 76);
     });
 
-    y += totalCardHeight + dividerGap;
+    y += shownTotal.length * totalRowHeight + dividerGap;
 
     ctx.strokeStyle = '#2c3138';
     ctx.beginPath();
@@ -1825,49 +1853,62 @@ async function renderShareCanvas(startDate, endDate, sections, totalRanking){
     ctx.stroke();
   }
 
-  // ---- モーター種別ごとのランキング（グリッド配置） ----
-  sections.forEach((section, idx) => {
-    const col = idx % columns;
-    const row = Math.floor(idx / columns);
-    const cx = marginX + col * (cellWidth + gridGap);
-    const cy = y + row * (cellHeight + gridGap);
+  // ---- モーター種別ごとのランキング（縦積み配置） ----
+  const valueHeaderLabels = ['電圧(V)', '電流(A)', '回転電力(W)', '回転数(rpm)'];
+  sections.forEach((section, sIdx) => {
+    const cy = y;
+    const shownCount = sectionShownCounts[sIdx];
 
-    ctx.fillStyle = '#1c1f24';
-    drawRoundedRect(ctx, cx, cy, cellWidth, cellHeight, 12);
-    ctx.fill();
-
-    const padX = 18;
     ctx.fillStyle = '#e9e7e1';
-    ctx.font = '700 20px "Noto Sans JP", sans-serif';
-    const titleText = truncateText(ctx, motorLabel(section.motor.key), cellWidth - padX * 2);
-    ctx.fillText(titleText, cx + padX, cy + 30);
+    ctx.font = '700 22px "Noto Sans JP", sans-serif';
+    ctx.fillText(motorLabel(section.motor.key), marginX, cy + 28);
+
+    ctx.fillStyle = '#8b909a';
+    ctx.font = '500 13px "Noto Sans JP", sans-serif';
+    const headerY = cy + sectionTitleAreaHeight + 18;
+    valueHeaderLabels.forEach((label, i) => {
+      const labelWidth = ctx.measureText(label).width;
+      ctx.fillText(label, colLefts[i] + valueColWidth - labelWidth, headerY);
+    });
 
     ctx.strokeStyle = '#2c3138';
     ctx.beginPath();
-    ctx.moveTo(cx + padX, cy + cellHeaderHeight - 8);
-    ctx.lineTo(cx + cellWidth - padX, cy + cellHeaderHeight - 8);
+    ctx.moveTo(marginX, cy + sectionTitleAreaHeight + miniHeaderAreaHeight - 6);
+    ctx.lineTo(width - marginX, cy + sectionTitleAreaHeight + miniHeaderAreaHeight - 6);
     ctx.stroke();
 
-    const shown = section.ranking.slice(0, SHARE_CELL_TOP_N);
+    const shown = section.ranking.slice(0, shownCount);
     shown.forEach((r, rIdx) => {
-      const rowY = cy + cellHeaderHeight + rIdx * cellRowHeight + 28;
+      const rowTop = cy + sectionTitleAreaHeight + miniHeaderAreaHeight + rIdx * sectionRowHeight;
+      const rowY = rowTop + 24;
 
       ctx.fillStyle = rIdx === 0 ? '#ffcc33' : '#8b909a';
       ctx.font = '700 18px "Rajdhani", sans-serif';
-      ctx.fillText(String(rIdx + 1), cx + padX, rowY);
+      ctx.fillText(String(rIdx + 1), marginX, rowY);
 
       ctx.fillStyle = '#e9e7e1';
       ctx.font = '600 18px "Noto Sans JP", sans-serif';
-      const nameMaxWidth = cellWidth - padX * 2 - 26 - 90;
-      const ownerText = truncateText(ctx, r.owner, nameMaxWidth);
-      ctx.fillText(ownerText, cx + padX + 26, rowY);
+      const ownerText = truncateText(ctx, r.owner, ownerMaxWidth);
+      ctx.fillText(ownerText, ownerX, rowY);
 
+      const values = [fmtOrDash(r.v, 2), fmtOrDash(r.a, 2), fmtOrDash(r.w, 2), fmt(r.rpm, 0)];
       ctx.fillStyle = '#4fc3f7';
-      ctx.font = '700 18px "Rajdhani", sans-serif';
-      const rpmText = `${fmt(r.rpm, 0)}`;
-      const rpmWidth = ctx.measureText(rpmText).width;
-      ctx.fillText(rpmText, cx + cellWidth - padX - rpmWidth, rowY);
+      ctx.font = '700 17px "Rajdhani", sans-serif';
+      values.forEach((text, i) => {
+        const textWidth = ctx.measureText(text).width;
+        ctx.fillText(text, colLefts[i] + valueColWidth - textWidth, rowY);
+      });
+
+      if(rIdx < shown.length - 1){
+        ctx.strokeStyle = '#20242a';
+        ctx.beginPath();
+        ctx.moveTo(marginX, rowTop + sectionRowHeight - 6);
+        ctx.lineTo(width - marginX, rowTop + sectionRowHeight - 6);
+        ctx.stroke();
+      }
     });
+
+    y += sectionHeights[sIdx];
   });
 
   ctx.fillStyle = '#8b909a';
