@@ -123,7 +123,26 @@
     background:var(--panel-2);
     flex-wrap:wrap;
   }
-  .panel-head-right{display:flex;align-items:center;gap:12px;}
+  .panel-head-right{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .owner-filter{display:flex;align-items:center;gap:6px;}
+  .owner-filter label{
+    font-family:'Rajdhani',sans-serif;
+    font-size:11px;
+    font-weight:700;
+    letter-spacing:.1em;
+    color:var(--muted);
+  }
+  .owner-filter select{
+    background:var(--panel);
+    border:1px solid var(--border);
+    color:var(--text);
+    border-radius:6px;
+    padding:5px 8px;
+    font-size:12px;
+    font-family:'Noto Sans JP',sans-serif;
+    max-width:160px;
+  }
+  .owner-filter.active select{border-color:var(--blue);color:var(--blue);}
   .ranking-open-btn{
     font-family:'Rajdhani',sans-serif;
     font-size:11px;
@@ -353,18 +372,6 @@
   .balance-type-speed{color:var(--danger);}
   .balance-type-balance{color:var(--text);}
   .balance-type-stamina{color:var(--blue);}
-  .seq-badge{
-    display:inline-block;
-    margin-left:6px;
-    font-family:'Rajdhani',sans-serif;
-    font-size:10px;
-    font-weight:600;
-    color:var(--muted);
-    background:#262b32;
-    border-radius:4px;
-    padding:1px 6px;
-    vertical-align:middle;
-  }
   .summary{
     border-top:1px solid var(--border);
     background:var(--panel-2);
@@ -716,6 +723,10 @@
         </div>
       </div>
       <div class="panel-head-right">
+        <div class="owner-filter">
+          <label for="owner-filter-select">所有者</label>
+          <select id="owner-filter-select"></select>
+        </div>
         <div class="count" id="panel-count"></div>
         <button type="button" class="ranking-open-btn" id="ranking-open-btn">ランキング</button>
         <button type="button" class="ranking-open-btn" id="share-open-btn" style="display:none;">SNS投稿用を作成</button>
@@ -1215,7 +1226,41 @@ function getBalanceLabel(entry, stats){
   return { type, typeLabel };
 }
 
+/* ---------- 所有者フィルタ（一覧に出す所有者を絞る） ---------- */
+// この端末だけの表示設定。クラウド(db)には保存しないので、他の人の画面には影響しない。
+const OWNER_FILTER_KEY = 'kaede_motor_lab_owner_filter';
+let ownerFilter = '';
+try{
+  ownerFilter = localStorage.getItem(OWNER_FILTER_KEY) || '';
+}catch(e){ /* localStorage 不可 → 絞り込みなしで開始 */ }
+
+function setOwnerFilter(value){
+  ownerFilter = value || '';
+  try{
+    if(ownerFilter) localStorage.setItem(OWNER_FILTER_KEY, ownerFilter);
+    else localStorage.removeItem(OWNER_FILTER_KEY);
+  }catch(e){ /* 保存できなくてもこのセッション内では有効 */ }
+}
+
+// 全モーター種別のデータに出てくる所有者名（プルダウンの候補）
+function collectOwnerNames(){
+  const names = new Set();
+  ALL_MOTORS.forEach(m => {
+    (db.entries[m.key] || []).forEach(e => {
+      const owner = (e.owner || '').trim();
+      if(owner) names.add(owner);
+    });
+  });
+  return Array.from(names).sort((a,b) => a.localeCompare(b, 'ja'));
+}
+
 const countEl = document.getElementById('panel-count');
+const ownerFilterSelect = document.getElementById('owner-filter-select');
+const ownerFilterWrap = ownerFilterSelect.closest('.owner-filter');
+ownerFilterSelect.addEventListener('change', () => {
+  setOwnerFilter(ownerFilterSelect.value);
+  renderPanel();
+});
 const theadRow = document.getElementById('thead-row');
 const tbody = document.getElementById('tbody');
 const summaryEl = document.getElementById('summary-cards');
@@ -1252,9 +1297,18 @@ function getDisplayRows(key){
   });
 }
 
+// 所有者フィルタ適用後の行（一覧表・平均に使う）
+// 判定は最新計測の所有者。ランキングやSNS投稿用画像、タイプ判定の基準値は
+// 絞り込みの影響を受けず、常に全員分で計算する。
+function getVisibleRows(key){
+  const rows = getDisplayRows(key);
+  if(!ownerFilter) return rows;
+  return rows.filter(r => (r.latest.owner || '').trim() === ownerFilter);
+}
+
 // 一覧表に表示されている値（各モーターの最新計測）を元に平均を算出
 function computeAverages(key){
-  const rows = getDisplayRows(key);
+  const rows = getVisibleRows(key);
   const stats = getGroupStats(key);
   const sums = {v:0, a:0, w:0, rpm:0, balance:0};
   const counts = {v:0, a:0, w:0, rpm:0, balance:0};
@@ -1274,13 +1328,36 @@ function computeAverages(key){
 
 function renderPanel(){
   renderSwitcher();
+  renderOwnerFilter();
 
-  const entries = getEntries(currentKey);
-  const rowCount = getDisplayRows(currentKey).length;
-  countEl.textContent = rowCount + ' 本 / 計測 ' + entries.length + ' 件';
+  const rows = getVisibleRows(currentKey);
+  const measureCount = rows.reduce((sum, r) => sum + r.count, 0);
+  countEl.textContent = rows.length + ' 本 / 計測 ' + measureCount + ' 件'
+    + (ownerFilter ? '（' + ownerFilter + ' さんのみ）' : '');
 
   renderHead();
   renderRows();
+}
+
+// 所有者プルダウンを最新の所有者一覧で描き直す
+function renderOwnerFilter(){
+  const names = collectOwnerNames();
+  // データが消えるなどして候補から外れた所有者でも、選択中なら候補に残す
+  if(ownerFilter && !names.includes(ownerFilter)) names.push(ownerFilter);
+
+  ownerFilterSelect.innerHTML = '';
+  const allOpt = document.createElement('option');
+  allOpt.value = '';
+  allOpt.textContent = 'すべて';
+  ownerFilterSelect.appendChild(allOpt);
+  names.forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    ownerFilterSelect.appendChild(opt);
+  });
+  ownerFilterSelect.value = ownerFilter;
+  ownerFilterWrap.classList.toggle('active', !!ownerFilter);
 }
 
 function renderHead(){
@@ -1361,7 +1438,7 @@ function renderSummary(avg, rowCount){
 }
 
 function renderRows(){
-  const rows = getDisplayRows(currentKey);
+  const rows = getVisibleRows(currentKey);
   const sort = getSort(currentKey);
   const col = COLUMNS.find(c => c.key===sort.col) || COLUMNS[4];
   const avg = computeAverages(currentKey);
@@ -1385,6 +1462,9 @@ function renderRows(){
 
   tbody.innerHTML = '';
   emptyMsg.style.display = rows.length ? 'none' : 'block';
+  emptyMsg.textContent = ownerFilter
+    ? ownerFilter + ' さんのデータはこのモーターにはありません。'
+    : 'データがありません。上の欄から追加してください。';
 
   const maxRpm = groupStats.maxRpm;
 
@@ -1394,7 +1474,8 @@ function renderRows(){
 
     const tdNo = document.createElement('td');
     tdNo.className = 'no-link';
-    tdNo.innerHTML = e.no + (row.count > 1 ? `<span class="seq-badge">全${row.count}回 ▸</span>` : '');
+    tdNo.textContent = e.no;
+    tdNo.title = row.count > 1 ? `計測履歴（全${row.count}回）を表示` : '計測履歴を表示';
     tdNo.addEventListener('click', () => openHistoryModal(row.no));
     tr.appendChild(tdNo);
 
