@@ -368,10 +368,6 @@
   .val-up{color:var(--danger);}
   .val-down{color:var(--blue);}
   .delta{font-size:11px;font-weight:600;margin-left:4px;color:var(--muted)!important;}
-  .balance-cell{white-space:nowrap;}
-  .balance-type-speed{color:var(--danger);}
-  .balance-type-balance{color:var(--text);}
-  .balance-type-stamina{color:var(--blue);}
   .summary{
     border-top:1px solid var(--border);
     background:var(--panel-2);
@@ -701,7 +697,7 @@
 <header>
   <div class="eyebrow">MINI 4WD &nbsp;/&nbsp; MOTOR DATABASE</div>
   <h1>モーターラボ<span>モーター管理</span></h1>
-  <p class="measure-note">REGPLANNINGさんのLOADCONTROLLERでの測定値になります。</p>
+  <p class="measure-note">KaedeSystem モーターマネージャーの「計測」での測定値です（負荷時: セレクター付き 2.8V・105mΩ・10秒 ／ 無負荷: 3.0V・10秒）。</p>
   <div class="sync-status" id="sync-status">● ローカル保存のみ</div>
   <div class="sister-apps">
     <span class="sister-apps-label">race_manager登録者の連携アプリ</span>
@@ -740,31 +736,24 @@
           <input type="text" id="f-no" placeholder="001">
         </div>
         <div class="field">
-          <label>電圧</label>
-          <div class="unit-wrap">
-            <input type="number" id="f-v" step="0.01" placeholder="0.00" inputmode="decimal">
-            <span class="unit">V</span>
-          </div>
-        </div>
-        <div class="field">
-          <label>電流</label>
-          <div class="unit-wrap">
-            <input type="number" id="f-a" step="0.01" placeholder="0.00" inputmode="decimal">
-            <span class="unit">A</span>
-          </div>
-        </div>
-        <div class="field">
-          <label>回転電力</label>
-          <div class="unit-wrap">
-            <input type="number" id="f-w" step="0.01" placeholder="0.00" inputmode="decimal">
-            <span class="unit">W</span>
-          </div>
-        </div>
-        <div class="field">
-          <label>回転数</label>
+          <label>負荷時回転数</label>
           <div class="unit-wrap">
             <input type="number" id="f-rpm" step="1" placeholder="0" inputmode="decimal">
             <span class="unit">rpm</span>
+          </div>
+        </div>
+        <div class="field">
+          <label>無負荷回転数</label>
+          <div class="unit-wrap">
+            <input type="number" id="f-rpmnl" step="1" placeholder="0" inputmode="decimal">
+            <span class="unit">rpm</span>
+          </div>
+        </div>
+        <div class="field">
+          <label>消費電力</label>
+          <div class="unit-wrap">
+            <input type="number" id="f-w" step="0.01" placeholder="0.00" inputmode="decimal">
+            <span class="unit">W</span>
           </div>
         </div>
         <div class="field">
@@ -821,7 +810,7 @@
     </div>
     <div class="modal-body">
       <section class="ranking-section">
-        <h4 class="ranking-section-title">速さ部門（回転数）</h4>
+        <h4 class="ranking-section-title">速さ部門（負荷時回転数）</h4>
         <table class="modal-table ranking-table">
           <thead><tr><th>順位</th><th>所有者</th><th>番号</th><th>rpm</th></tr></thead>
           <tbody id="ranking-speed-tbody"></tbody>
@@ -996,10 +985,26 @@ function saveAll(data){
   pushToCloud(data);
 }
 
+// データの形式。2 = KaedeSystem の「計測」（負荷時回転数・無負荷回転数・消費電力）。
+// それより前（電圧・電流・回転電力・回転数）のデータは計測方法が違うため、すべて削除する。
+const DB_SCHEMA = 2;
+
+// 読み込んだデータを今の形式にそろえる。古い形式の計測を消したときは true を返す
+function normalizeDb(d){
+  if(!d.entries) d.entries = {};
+  if(!d.sort) d.sort = {};
+  if(!d.owners) d.owners = [];
+  if(d.schema !== DB_SCHEMA){
+    d.entries = {};   // 古い計測はすべて削除（所有者の候補は残す）
+    d.sort = {};
+    d.schema = DB_SCHEMA;
+    return true;
+  }
+  return false;
+}
+
 let db = loadAll();
-if(!db.entries) db.entries = {};
-if(!db.sort) db.sort = {};
-if(!db.owners) db.owners = [];
+if(normalizeDb(db)) saveLocal(db);
 
 // 他の端末からの更新をリアルタイムに受け取る（本人登録確認が済んでから attachCloudSync() で開始する）
 function attachCloudSync(){
@@ -1019,10 +1024,10 @@ function attachCloudSync(){
     try{
       const parsed = JSON.parse(docSnap.data().payload);
       db = parsed;
-      if(!db.entries) db.entries = {};
-      if(!db.sort) db.sort = {};
-      if(!db.owners) db.owners = [];
+      const migrated = normalizeDb(db);
       saveLocal(db);
+      // 古い形式のままのクラウドは、編集できる人（マスター）が開いたときに新しい形式で上書きする
+      if(migrated && canEdit) pushToCloud(db);
       if(typeof renderOwnerOptions === 'function') renderOwnerOptions();
       if(typeof renderPanel === 'function') renderPanel();
       setSyncStatus('クラウド同期 有効（他端末の更新を反映）', 'on');
@@ -1131,11 +1136,9 @@ axisToggleBtn.addEventListener('click', () => {
 /* ---------- パネル（フォーム＋表）描画 ---------- */
 const COLUMNS = [
   {key:'no',   label:'番号',   sortable:true, type:'text'},
-  {key:'v',    label:'電圧 (V)',   sortable:true, type:'num'},
-  {key:'a',    label:'電流 (A)',   sortable:true, type:'num'},
-  {key:'w',    label:'回転電力 (W)',sortable:true, type:'num'},
-  {key:'rpm',  label:'回転数 (rpm)',sortable:true, type:'num'},
-  {key:'balance', label:'タイプ', sortable:true, type:'num'},
+  {key:'rpm',  label:'負荷時回転数 (rpm)', sortable:true, type:'num'},
+  {key:'rpmNl',label:'無負荷回転数 (rpm)', sortable:true, type:'num'},
+  {key:'w',    label:'消費電力 (W)', sortable:true, type:'num'},
   {key:'date', label:'計測日',   sortable:true, type:'text'},
   {key:'owner',label:'所有者',   sortable:true, type:'text'},
 ];
@@ -1176,54 +1179,14 @@ function computeOwnerRanking(key){
   return Array.from(bestSpeed.values()).sort((a,b) => b.rpm - a.rpm);
 }
 
-// 同じモーター種別グループ内での最大rpm・最小電流（バランス値の正規化基準）
+// 同じモーター種別グループ内での最大の負荷時回転数（回転数バーの基準）
 function getGroupStats(key){
-  const rows = getDisplayRows(key);
   let maxRpm = 0;
-  let minA = null;
-  rows.forEach(r => {
+  getDisplayRows(key).forEach(r => {
     const rpm = parseFloat(r.latest.rpm);
-    const a = parseFloat(r.latest.a);
     if(!isNaN(rpm) && rpm > maxRpm) maxRpm = rpm;
-    if(!isNaN(a) && a > 0 && (minA === null || a < minA)) minA = a;
   });
-  return { maxRpm: Math.max(1, maxRpm), minA };
-}
-
-// 速さ(rpm)とスタミナ(電流の少なさ)をグループ内相対値(0〜10)にした内訳
-// 保存はせず、表示のたびにその場で算出する
-function getBalanceDetail(entry, stats){
-  const rpm = parseFloat(entry.rpm);
-  const a = parseFloat(entry.a);
-  if(isNaN(rpm) || isNaN(a) || a <= 0) return null;
-  if(!stats || stats.minA === null) return null;
-  const speedScore = (rpm / stats.maxRpm) * 10;
-  const staminaScore = (stats.minA / a) * 10;
-  return { speedScore, staminaScore, raw: (speedScore + staminaScore) / 2 };
-}
-
-// バランス値＝速さスコアとスタミナスコアの平均（ソート・平均集計用）
-function getBalance(entry, stats){
-  const detail = getBalanceDetail(entry, stats);
-  return detail ? detail.raw : null;
-}
-
-// 表示用：速さスコアとスタミナスコアの差が大きいほど「スピード型」「スタミナ型」に、
-// 差が小さければ「バランス型」に分類する
-const BALANCE_TYPE_GAP = 2; // 0〜10スケールでこれ以上の差があれば型が偏っていると判定
-function getBalanceLabel(entry, stats){
-  const detail = getBalanceDetail(entry, stats);
-  if(!detail) return null;
-  const diff = detail.speedScore - detail.staminaScore;
-  let type, typeLabel;
-  if(diff >= BALANCE_TYPE_GAP){
-    type = 'speed'; typeLabel = 'スピード型';
-  }else if(diff <= -BALANCE_TYPE_GAP){
-    type = 'stamina'; typeLabel = 'スタミナ型';
-  }else{
-    type = 'balance'; typeLabel = 'バランス型';
-  }
-  return { type, typeLabel };
+  return { maxRpm: Math.max(1, maxRpm) };
 }
 
 /* ---------- 所有者フィルタ（一覧に出す所有者を絞る） ---------- */
@@ -1307,22 +1270,20 @@ function getVisibleRows(key){
 }
 
 // 一覧表に表示されている値（各モーターの最新計測）を元に平均を算出
+const VALUE_COLS = ['rpm','rpmNl','w'];
 function computeAverages(key){
   const rows = getVisibleRows(key);
-  const stats = getGroupStats(key);
-  const sums = {v:0, a:0, w:0, rpm:0, balance:0};
-  const counts = {v:0, a:0, w:0, rpm:0, balance:0};
+  const sums = {}, counts = {};
+  VALUE_COLS.forEach(col => { sums[col] = 0; counts[col] = 0; });
   rows.forEach(r => {
     const e = r.latest;
-    ['v','a','w','rpm'].forEach(col => {
+    VALUE_COLS.forEach(col => {
       const n = parseFloat(e[col]);
       if(!isNaN(n)){ sums[col]+=n; counts[col]++; }
     });
-    const bal = getBalance(e, stats);
-    if(bal !== null){ sums.balance += bal; counts.balance++; }
   });
   const avg = {};
-  ['v','a','w','rpm','balance'].forEach(col => { avg[col] = counts[col] ? sums[col]/counts[col] : null; });
+  VALUE_COLS.forEach(col => { avg[col] = counts[col] ? sums[col]/counts[col] : null; });
   return avg;
 }
 
@@ -1421,11 +1382,9 @@ function renderSummary(avg, rowCount){
   }
 
   const stats = [
-    {label:'平均 電圧', value:avg.v, decimals:2, unit:'V'},
-    {label:'平均 電流', value:avg.a, decimals:2, unit:'A'},
-    {label:'平均 回転電力', value:avg.w, decimals:2, unit:'W'},
-    {label:'平均 回転数', value:avg.rpm, decimals:0, unit:'rpm'},
-    {label:'平均 バランス値', value:avg.balance, decimals:2, unit:'/10'}
+    {label:'平均 負荷時回転数', value:avg.rpm, decimals:0, unit:'rpm'},
+    {label:'平均 無負荷回転数', value:avg.rpmNl, decimals:0, unit:'rpm'},
+    {label:'平均 消費電力', value:avg.w, decimals:2, unit:'W'}
   ];
 
   stats.forEach(s => {
@@ -1440,19 +1399,18 @@ function renderSummary(avg, rowCount){
 function renderRows(){
   const rows = getVisibleRows(currentKey);
   const sort = getSort(currentKey);
-  const col = COLUMNS.find(c => c.key===sort.col) || COLUMNS[4];
+  const col = COLUMNS.find(c => c.key===sort.col) || COLUMNS[1];
   const avg = computeAverages(currentKey);
 
   const groupStats = getGroupStats(currentKey);
 
   rows.sort((x,y) => {
-    let a, b;
-    if(col.key === 'balance'){
-      a = getBalance(x.latest, groupStats); b = getBalance(y.latest, groupStats);
-    } else {
-      a = x.latest[col.key]; b = y.latest[col.key];
+    let a = x.latest[col.key], b = y.latest[col.key];
+    if(col.type === 'num'){
+      // 値がない行は並び順の向きにかかわらず最後に回す
+      a = parseFloat(a); b = parseFloat(b);
+      if(isNaN(a) || isNaN(b)) return (isNaN(a) ? 1 : 0) - (isNaN(b) ? 1 : 0);
     }
-    if(col.type === 'num'){ a = parseFloat(a); b = parseFloat(b); }
     else { a = String(a||''); b = String(b||''); }
     let cmp;
     if(col.type === 'num') cmp = a - b;
@@ -1479,27 +1437,6 @@ function renderRows(){
     tdNo.addEventListener('click', () => openHistoryModal(row.no));
     tr.appendChild(tdNo);
 
-    const vCell = cellMarkup(e.v, row.previous && row.previous.v, avg.v, 2);
-    const tdV = document.createElement('td');
-    tdV.className = 'num' + (vCell.cls ? ' '+vCell.cls : '');
-    tdV.dataset.label = colLabel('v');
-    tdV.innerHTML = vCell.html;
-    tr.appendChild(tdV);
-
-    const aCell = cellMarkup(e.a, row.previous && row.previous.a, avg.a, 2);
-    const tdA = document.createElement('td');
-    tdA.className = 'num' + (aCell.cls ? ' '+aCell.cls : '');
-    tdA.dataset.label = colLabel('a');
-    tdA.innerHTML = aCell.html;
-    tr.appendChild(tdA);
-
-    const wCell = cellMarkup(e.w, row.previous && row.previous.w, avg.w, 2);
-    const tdW = document.createElement('td');
-    tdW.className = 'num' + (wCell.cls ? ' '+wCell.cls : '');
-    tdW.dataset.label = colLabel('w');
-    tdW.innerHTML = wCell.html;
-    tr.appendChild(tdW);
-
     const rpmCell = cellMarkup(e.rpm, row.previous && row.previous.rpm, avg.rpm, 0);
     const tdRpm = document.createElement('td');
     tdRpm.className = 'num rpm-cell' + (rpmCell.cls ? ' '+rpmCell.cls : '');
@@ -1508,17 +1445,14 @@ function renderRows(){
     tdRpm.innerHTML = `${rpmCell.html}<div class="rpm-bar-track"><div class="rpm-bar-fill" style="width:${pct}%"></div></div>`;
     tr.appendChild(tdRpm);
 
-    const tdBalance = document.createElement('td');
-    tdBalance.dataset.label = colLabel('balance');
-    const balLabel = getBalanceLabel(e, groupStats);
-    if(balLabel === null){
-      tdBalance.className = 'balance-cell';
-      tdBalance.textContent = '—';
-    }else{
-      tdBalance.className = 'balance-cell balance-type-' + balLabel.type;
-      tdBalance.textContent = balLabel.typeLabel;
-    }
-    tr.appendChild(tdBalance);
+    [['rpmNl',0],['w',2]].forEach(([k,d]) => {
+      const cell = cellMarkup(e[k], row.previous && row.previous[k], avg[k], d);
+      const td = document.createElement('td');
+      td.className = 'num' + (cell.cls ? ' '+cell.cls : '');
+      td.dataset.label = colLabel(k);
+      td.innerHTML = cell.html;
+      tr.appendChild(td);
+    });
 
     const tdDate = document.createElement('td');
     tdDate.className = 'num';
@@ -1659,27 +1593,23 @@ function renderRankingModal(){
 // 全期間・現在選択中の種別だけのベストだが、こちらは指定した期間（開始日〜終了日、
 // 両端含む）に計測されたエントリを対象にする（夜をまたいだ計測で日付がずれていても
 // 範囲指定なら拾える）。モーター種別ごとに別々のランキングを作る。
-// 順位は回転数の単純比較ではなく、同一種別・同一期間内で正規化した総合スコア
-// （computeTotalScore、電圧・電流・回転電力・回転数を加味）で決める。v/a/w/rpmの
-// いずれかが欠けている・0以下のエントリーはスコアが出せないためランキング対象外
-// になる（既存のgetBalanceDetail()と同じ「不完全なデータで不当な順位を出さない」
-// 方針）。
+// 順位は負荷時回転数（KaedeSystem の「計測」の順位付けと同じ）。負荷時回転数が
+// 無いエントリーはランキング対象外。
 function computeOwnerRankingForRange(key, startDate, endDate){
-  const stats = getGroupStatsForRange(key, startDate, endDate);
-  const best = new Map(); // owner -> {owner, rpm, v, a, w, score, rpmScore, currentScore, powerScore, voltageScore, electricalScore, no}
+  const best = new Map(); // owner -> {owner, rpm, rpmNl, w, no}
   getEntries(key).forEach(entry => {
     const d = entry.date || '';
     if(d < startDate || d > endDate) return;
     const owner = (entry.owner || '').trim();
     if(!owner) return;
-    const result = computeTotalScore(entry, stats);
-    if(result === null) return;
+    const rpm = parseFloat(entry.rpm);
+    if(isNaN(rpm) || rpm <= 0) return;
     const cur = best.get(owner);
-    if(!cur || result.score > cur.score){
-      best.set(owner, { owner, rpm: entry.rpm, v: entry.v, a: entry.a, w: entry.w, no: entry.no, ...result });
+    if(!cur || rpm > cur.rpm){
+      best.set(owner, { owner, rpm, rpmNl: entry.rpmNl, w: entry.w, no: entry.no });
     }
   });
-  return Array.from(best.values()).sort((a,b) => b.score - a.score);
+  return Array.from(best.values()).sort((a,b) => b.rpm - a.rpm);
 }
 
 // 指定期間にデータがあるモーター種別だけを、種別定義（ALL_MOTORS）の順に集める
@@ -1690,62 +1620,6 @@ function collectShareSections(startDate, endDate){
     if(ranking.length > 0) sections.push({ motor, ranking });
   });
   return sections;
-}
-
-// モーター種別によって回転数・電流・回転電力・電圧のスケールが全く異なるため、
-// 種別内での相対値（0〜10）に正規化してから合算する。既存のgetGroupStats()/
-// getBalanceDetail()と同じ考え方を、対象期間に絞った上で回転電力(w)・電圧(v)にも
-// 拡張したもの。
-// 回転電力(maxW)は計測器（RP LOAD CONTROLLER）の仕様上、電圧×電流の単純な消費電力
-// ではなく、負荷をかけた状態でのトルク×回転数から求めた「回転（機械的）出力」に
-// 近いと考えられる（詳細は下のcomputeTotalScoreのコメント参照）ため、電流とは逆に
-// 高いほど良い値として最大値を基準にする。
-// 電圧(maxV)は、負荷をかけた状態での電圧降下が小さい（＝電圧が高い）ほど、モーター
-// 内部抵抗やブラシ・整流子の接点状態が良いと考えられるため、こちらも高いほど良い
-// 値として最大値を基準にする。
-function getGroupStatsForRange(key, startDate, endDate){
-  let maxRpm = 0, minA = null, maxW = 0, maxV = 0;
-  getEntries(key).forEach(e => {
-    const d = e.date || '';
-    if(d < startDate || d > endDate) return;
-    const rpm = parseFloat(e.rpm), a = parseFloat(e.a), w = parseFloat(e.w), v = parseFloat(e.v);
-    if(!isNaN(rpm) && rpm > maxRpm) maxRpm = rpm;
-    if(!isNaN(a) && a > 0 && (minA === null || a < minA)) minA = a;
-    if(!isNaN(w) && w > maxW) maxW = w;
-    if(!isNaN(v) && v > maxV) maxV = v;
-  });
-  return { maxRpm: Math.max(1, maxRpm), minA, maxW: Math.max(1, maxW), maxV: Math.max(1, maxV) };
-}
-
-// 1エントリーの総合スコア（0〜10）。回転数・回転電力・電圧は高いほど、電流は低い
-// ほど加点する。
-// 回転電力(w)は電圧×電流と一致しない（実測データ上、同じ比率にならない）ことと、
-// 計測器が「LOAD CONTROLLER」＝負荷をかけてトルクを算出する機構を持つ製品である
-// ことから、単純な消費電力ではなく「負荷をかけた状態での回転（機械的）出力
-// （トルク×回転数）」に近い値だと考えられる。そのため電流（消費側の指標）とは逆に、
-// 高いほど加点する。
-// 電圧(v)は、負荷をかけた状態での電圧降下が小さい（＝電圧が高い）ほど内部抵抗・
-// 接点の状態が良いと考えられるため、高いほど加点する。ただし電流と電圧はどちらも
-// 「モーターの電気的な健全性」を映す近い性質の指標（内部抵抗が大きいほど、電流が
-// 余計に流れやすく、電圧も下がりやすい傾向にある）と考えられるため、この2つを
-// 平均して1つの「電気系スコア」にまとめてから、回転数・回転電力と対等な1/3ずつの
-// 重みで合成する（電流と電圧を別々の項目として単純平均すると、同じ弱点を二重に
-// 減点してしまい、電気系の影響が総合スコアの半分を占めてしまうため）。
-// v/a/w/rpmのいずれかが欠けている・0以下ならnull（既存のgetBalanceDetail()同様、
-// 不完全なデータで不当なスコアを出さない）。
-// 内訳（rpmScore/currentScore/powerScore/voltageScore/electricalScore）も含めて
-// 返す（呼び出し元で保持するのみで、共有画像には合成スコアだけを表示する）
-function computeTotalScore(entry, stats){
-  const rpm = parseFloat(entry.rpm), a = parseFloat(entry.a), w = parseFloat(entry.w), v = parseFloat(entry.v);
-  if(isNaN(rpm) || isNaN(a) || isNaN(w) || isNaN(v) || a <= 0 || w <= 0 || v <= 0) return null;
-  if(stats.minA === null) return null;
-  const rpmScore = (rpm / stats.maxRpm) * 10;             // 高いほど加点
-  const currentScore = (stats.minA / a) * 10;             // 低いほど加点
-  const powerScore = (w / stats.maxW) * 10;                // 高いほど加点
-  const voltageScore = (v / stats.maxV) * 10;               // 高いほど加点
-  const electricalScore = (currentScore + voltageScore) / 2;
-  const score = (rpmScore + powerScore + electricalScore) / 3;
-  return { score, rpmScore, currentScore, powerScore, voltageScore, electricalScore };
 }
 
 const SHARE_CELL_TOP_N = 10;
@@ -1817,7 +1691,7 @@ function drawRoundedRect(ctx, x, y, w, h, r){
   ctx.closePath();
 }
 
-// 数値化できない場合は「—」を表示する（V/A/Wが未入力のエントリー向け）
+// 数値化できない場合は「—」を表示する（未入力の欄向け）
 function fmtOrDash(val, decimals){
   const n = parseFloat(val);
   return isNaN(n) ? '—' : fmt(val, decimals);
@@ -1835,8 +1709,7 @@ function truncateText(ctx, text, maxWidth){
 
 // Canvas 2D APIで手描きの共有カード画像を作る（外部ライブラリ不使用）。
 // 縦向き1枚の画像内に、データのあるモーター種別ごとのランキングを上から順に
-// 縦積みで配置する。各行は電圧・電流・回転電力・回転数の実測値に加えて、
-// それらを合成した総合スコア（総合ランキングの順位決定にも使う値そのもの）を表示する。
+// 縦積みで配置する。各行は負荷時回転数（順位の基準）・無負荷回転数・消費電力を表示する。
 // titleを指定した場合は見出しをその文字列にし、期間は見出しの下に小さく添える
 // （未指定なら従来通り期間から自動生成した文言を見出しにする）。
 async function renderShareCanvas(startDate, endDate, sections, title){
@@ -1851,12 +1724,12 @@ async function renderShareCanvas(startDate, endDate, sections, title){
   const footerHeight = 60;
 
   // ---- モーター種別ごとのランキング（縦積みセクション）の列位置とサイズ ----
-  const valueColWidth = 96;
-  const colGap = 12;
-  const numColumns = 5; // 電圧・電流・回転電力・回転数・総合スコア
+  const valueColWidth = 150;
+  const colGap = 16;
+  const numColumns = 3; // 負荷時回転数・無負荷回転数・消費電力
   const numericAreaWidth = valueColWidth * numColumns + colGap * (numColumns - 1);
   const numericAreaLeft = width - marginX - numericAreaWidth;
-  const colLefts = [0, 1, 2, 3, 4].map(i => numericAreaLeft + i * (valueColWidth + colGap));
+  const colLefts = [0, 1, 2].map(i => numericAreaLeft + i * (valueColWidth + colGap));
   const ownerX = marginX + 34;
   const ownerMaxWidth = numericAreaLeft - ownerX - 16;
 
@@ -1907,7 +1780,7 @@ async function renderShareCanvas(startDate, endDate, sections, title){
   let y = headerHeight + 20;
 
   // ---- モーター種別ごとのランキング（縦積み配置） ----
-  const valueHeaderLabels = ['電圧(V)', '電流(A)', '回転電力(W)', '回転数(rpm)', '総合(pt)'];
+  const valueHeaderLabels = ['負荷時(rpm)', '無負荷(rpm)', '消費電力(W)'];
   sections.forEach((section, sIdx) => {
     const cy = y;
     const shownCount = sectionShownCounts[sIdx];
@@ -1944,19 +1817,14 @@ async function renderShareCanvas(startDate, endDate, sections, title){
       const ownerText = truncateText(ctx, r.owner, ownerMaxWidth);
       ctx.fillText(ownerText, ownerX, rowY);
 
-      const values = [fmtOrDash(r.v, 2), fmtOrDash(r.a, 2), fmtOrDash(r.w, 2), fmt(r.rpm, 0)];
-      ctx.fillStyle = '#c9cdd3';
-      ctx.font = '600 16px "Rajdhani", sans-serif';
+      // 順位の基準（負荷時回転数）だけ強調色
+      const values = [fmt(r.rpm, 0), fmtOrDash(r.rpmNl, 0), fmtOrDash(r.w, 2)];
       values.forEach((text, i) => {
+        ctx.fillStyle = i === 0 ? '#4fc3f7' : '#c9cdd3';
+        ctx.font = i === 0 ? '700 18px "Rajdhani", sans-serif' : '600 16px "Rajdhani", sans-serif';
         const textWidth = ctx.measureText(text).width;
         ctx.fillText(text, colLefts[i] + valueColWidth - textWidth, rowY);
       });
-
-      const scoreText = fmt(r.score, 1);
-      const scoreWidth = ctx.measureText(scoreText).width;
-      ctx.fillStyle = '#4fc3f7';
-      ctx.font = '700 18px "Rajdhani", sans-serif';
-      ctx.fillText(scoreText, colLefts[4] + valueColWidth - scoreWidth, rowY);
 
       if(rIdx < shown.length - 1){
         ctx.strokeStyle = '#20242a';
@@ -2118,10 +1986,9 @@ function renderModalTable(no){
   if(!row){ closeModal(); return; }
 
   const avg = computeAverages(currentKey);
-  const groupStats = getGroupStats(currentKey);
   const history = row.history; // 新しい→古い
 
-  modalThead.innerHTML = '<th>計測日</th><th>所有者</th><th>電圧(V)</th><th>電流(A)</th><th>回転電力(W)</th><th>回転数(rpm)</th><th>タイプ</th><th></th>';
+  modalThead.innerHTML = '<th>計測日</th><th>所有者</th><th>負荷時回転数(rpm)</th><th>無負荷回転数(rpm)</th><th>消費電力(W)</th><th></th>';
   modalTbody.innerHTML = '';
 
   history.forEach((e, idx) => {
@@ -2138,7 +2005,7 @@ function renderModalTable(no){
     tdOwner.textContent = e.owner || '—';
     tr.appendChild(tdOwner);
 
-    [['v',2],['a',2],['w',2],['rpm',0]].forEach(([k,d]) => {
+    [['rpm',0],['rpmNl',0],['w',2]].forEach(([k,d]) => {
       const cell = cellMarkup(e[k], prevEntry && prevEntry[k], avg[k], d);
       const td = document.createElement('td');
       td.className = 'num' + (cell.cls ? ' '+cell.cls : '');
@@ -2146,18 +2013,6 @@ function renderModalTable(no){
       td.innerHTML = cell.html;
       tr.appendChild(td);
     });
-
-    const tdBalance = document.createElement('td');
-    tdBalance.dataset.label = colLabel('balance');
-    const balLabel = getBalanceLabel(e, groupStats);
-    if(balLabel === null){
-      tdBalance.className = 'balance-cell';
-      tdBalance.textContent = '—';
-    }else{
-      tdBalance.className = 'balance-cell balance-type-' + balLabel.type;
-      tdBalance.textContent = balLabel.typeLabel;
-    }
-    tr.appendChild(tdBalance);
 
     const tdActions = document.createElement('td');
     tdActions.className = 'action-cell';
@@ -2202,7 +2057,7 @@ function renderModalTable(no){
 
 function fmt(val, decimals){
   const n = parseFloat(val);
-  if(isNaN(n)) return val;
+  if(isNaN(n)) return (val === undefined || val === null || val === '') ? '—' : val;
   return n.toLocaleString('ja-JP', {minimumFractionDigits:decimals, maximumFractionDigits:decimals});
 }
 
@@ -2210,10 +2065,9 @@ function fmt(val, decimals){
 const addBtn = document.getElementById('add-btn');
 const cancelEditBtn = document.getElementById('cancel-edit-btn');
 const fNo = document.getElementById('f-no');
-const fV = document.getElementById('f-v');
-const fA = document.getElementById('f-a');
-const fW = document.getElementById('f-w');
 const fRpm = document.getElementById('f-rpm');
+const fRpmNl = document.getElementById('f-rpmnl');
+const fW = document.getElementById('f-w');
 const fDate = document.getElementById('f-date');
 const fOwner = document.getElementById('f-owner');
 
@@ -2245,7 +2099,7 @@ function resetNoField(){
 resetNoField();
 
 const errorBox = document.getElementById('form-error');
-const allFields = [fNo, fV, fA, fW, fRpm];
+const allFields = [fNo, fRpm, fRpmNl, fW];
 
 function clearFieldErrors(){
   allFields.forEach(f => f.style.borderColor = '');
@@ -2259,10 +2113,9 @@ let editingEntry = null;
 function enterEditMode(entry){
   editingEntry = entry;
   fNo.value = entry.no;
-  fV.value = entry.v;
-  fA.value = entry.a;
-  fW.value = entry.w;
-  fRpm.value = entry.rpm;
+  fRpm.value = entry.rpm ?? '';
+  fRpmNl.value = entry.rpmNl ?? '';
+  fW.value = entry.w ?? '';
   fDate.value = entry.date || todayStr();
   fOwner.value = entry.owner || '';
   addBtn.textContent = '更新';
@@ -2279,7 +2132,7 @@ function exitEditMode(){
   editingEntry = null;
   addBtn.textContent = '＋ 追加';
   cancelEditBtn.style.display = 'none';
-  fV.value=''; fA.value=''; fW.value=''; fRpm.value=''; fOwner.value='';
+  fRpm.value=''; fRpmNl.value=''; fW.value=''; fOwner.value='';
   fDate.value = todayStr();
   resetNoField();
   clearFieldErrors();
@@ -2292,20 +2145,18 @@ function addOrUpdateEntry(){
 
   const entry = {
     no: fNo.value.trim(),
-    v: fV.value,
-    a: fA.value,
-    w: fW.value,
     rpm: fRpm.value,
+    rpmNl: fRpmNl.value,
+    w: fW.value,
     date: fDate.value || todayStr(),
     owner: fOwner.value.trim()
   };
 
   const missing = [];
   if(entry.no==='') missing.push(fNo);
-  if(entry.v==='') missing.push(fV);
-  if(entry.a==='') missing.push(fA);
-  if(entry.w==='') missing.push(fW);
   if(entry.rpm==='') missing.push(fRpm);
+  if(entry.rpmNl==='') missing.push(fRpmNl);
+  if(entry.w==='') missing.push(fW);
 
   if(missing.length){
     missing.forEach(f => f.style.borderColor = 'var(--danger)');
@@ -2317,10 +2168,9 @@ function addOrUpdateEntry(){
 
   if(editingEntry){
     editingEntry.no = entry.no;
-    editingEntry.v = entry.v;
-    editingEntry.a = entry.a;
-    editingEntry.w = entry.w;
     editingEntry.rpm = entry.rpm;
+    editingEntry.rpmNl = entry.rpmNl;
+    editingEntry.w = entry.w;
     editingEntry.date = entry.date;
     editingEntry.owner = entry.owner;
     rememberOwner(entry.owner);
@@ -2336,7 +2186,7 @@ function addOrUpdateEntry(){
   renderPanel();
 
   // 次の番号を自動採番し、番号・計測日・所有者以外をクリア
-  fV.value=''; fA.value=''; fW.value=''; fRpm.value='';
+  fRpm.value=''; fRpmNl.value=''; fW.value='';
   resetNoField();
   fNo.focus();
 }
@@ -2344,7 +2194,7 @@ function addOrUpdateEntry(){
 addBtn.addEventListener('click', addOrUpdateEntry);
 
 // Enterキーでも追加／更新できるようにする（各入力欄で）
-[fNo, fV, fA, fW, fRpm, fDate, fOwner].forEach(f => {
+[fNo, fRpm, fRpmNl, fW, fDate, fOwner].forEach(f => {
   f.addEventListener('keydown', (ev) => {
     if(ev.key === 'Enter'){
       ev.preventDefault();
