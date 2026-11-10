@@ -726,6 +726,7 @@
         <div class="count" id="panel-count"></div>
         <button type="button" class="ranking-open-btn" id="ranking-open-btn">ランキング</button>
         <button type="button" class="ranking-open-btn" id="share-open-btn" style="display:none;">SNS投稿用を作成</button>
+        <button type="button" class="ranking-open-btn" id="device-key-btn" style="display:none;">本体の送信キー</button>
       </div>
     </div>
 
@@ -1916,6 +1917,29 @@ shareDownloadBtn.addEventListener('click', async () => {
   setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
 });
 
+/* ---------- KaedeSystem 本体の送信キー（マスター専用） ---------- */
+// 本体（M5Stack）は Google ログインできないため、ここで発行したキーを本体の
+// motor_lab_secrets.h（MOTOR_LAB_API_KEY）に書いて計測を送る。キーは発行したときに
+// 一度だけ表示し、サーバーにはハッシュだけが残る。発行し直すと前のキーは使えなくなる。
+const deviceKeyBtn = document.getElementById('device-key-btn');
+deviceKeyBtn.addEventListener('click', async () => {
+  if(!confirm('KaedeSystem 本体の送信キーを発行しますか？\n発行し直すと、前のキーを書いた本体からは送れなくなります。')) return;
+  deviceKeyBtn.disabled = true;
+  try{
+    const callable = functionsInstance.httpsCallable('issueMotorLabDeviceKey');
+    const result = await callable({});
+    const key = result.data && result.data.key;
+    if(!key) throw new Error('キーを受け取れませんでした');
+    try{ await navigator.clipboard.writeText(key); }catch(e){ /* コピーできなくても下の欄から写せる */ }
+    window.prompt('送信キー（コピーしました）。本体の motor_lab_secrets.h の MOTOR_LAB_API_KEY に書いてください。この画面を閉じると二度と表示されません。', key);
+  }catch(e){
+    console.warn('送信キーの発行に失敗しました', e);
+    alert('送信キーの発行に失敗しました: ' + (e && e.message ? e.message : e));
+  }finally{
+    deviceKeyBtn.disabled = false;
+  }
+});
+
 shareCopyBtn.addEventListener('click', async () => {
   try{
     await navigator.clipboard.writeText(shareResultUrlInput.value);
@@ -2261,6 +2285,7 @@ function unlockApp(user, master){
   }
   // SNS投稿用の作成はマスターのみ（race_managerの製作者本人）に限定する。
   shareOpenBtn.style.display = canEdit ? '' : 'none';
+  deviceKeyBtn.style.display = canEdit ? '' : 'none';
   attachCloudSync();
   renderPanel();
 }
