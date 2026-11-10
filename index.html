@@ -1498,7 +1498,7 @@ function renderRows(){
         if(!confirm(`${e.no}（${e.date || '日付なし'}）の計測を削除しますか？`)) return;
         const arr = getEntries(currentKey);
         const idx = arr.indexOf(e);
-        if(idx>-1) arr.splice(idx,1);
+        if(idx>-1){ arr.splice(idx,1); rememberDeleted(currentKey, e); }
         saveAll(db);
         renderPanel();
         if(!(typeof editingEntry !== 'undefined' && editingEntry)) resetNoField();
@@ -1512,6 +1512,27 @@ function renderRows(){
   });
 
   renderSummary(avg, rows.length);
+}
+
+/* ---------- 削除した計測の印（KaedeSystem 本体の記録から外すため） ---------- */
+// 本体は SD の記録で順位を出すので、ここで消した計測を本体にも伝える。印は「番号|計測日|負荷時回転数」
+// （本体の measSigOf と同じ形）。スマホのページが受け口（listMotorLabDeleted）から受け取り、本体へ送る。
+// 手で入れた計測など本体に無いものは、本体で突き合わせて何も起きない。種別ごとに新しい方から 300 件まで残す。
+const DELETED_KEEP = 300;
+function deletedSigOf(entry){
+  const no = parseInt(String(entry.no || '').replace(/\D/g, ''), 10);
+  const rpm = Math.round(parseFloat(entry.rpm));
+  const date = String(entry.date || '');
+  if(!(no >= 1 && no <= 999) || !(rpm > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  return `${no}|${date}|${rpm}`;
+}
+function rememberDeleted(key, entry){
+  const sig = deletedSigOf(entry);
+  if(!sig) return;
+  if(!db.deleted || typeof db.deleted !== 'object') db.deleted = {};
+  const list = Array.isArray(db.deleted[key]) ? db.deleted[key] : [];
+  if(!list.includes(sig)) list.push(sig);
+  db.deleted[key] = list.slice(-DELETED_KEEP);
 }
 
 /* ---------- 計測履歴モーダル ---------- */
@@ -2058,7 +2079,7 @@ function renderModalTable(no){
         if(!confirm(`${e.no}（${e.date || '日付なし'}）の計測を削除しますか？`)) return;
         const arr = getEntries(currentKey);
         const idx2 = arr.indexOf(e);
-        if(idx2>-1) arr.splice(idx2,1);
+        if(idx2>-1){ arr.splice(idx2,1); rememberDeleted(currentKey, e); }
         saveAll(db);
         renderPanel();
         if(!(typeof editingEntry !== 'undefined' && editingEntry)) resetNoField();
