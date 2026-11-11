@@ -565,7 +565,8 @@
     h1{font-size:24px;}
     h1 span{display:block;margin:4px 0 0;}
 
-    /* 横スクロールを避けるため、テーブルを1行1カードのレイアウトに変える
+    /* 横スクロールを避けるため、テーブルを1行1カードのレイアウトに変える。
+       3つの測定値はどのカードでも同じ位置に横並びにして、上下のカードと見比べやすくする
        （所有者別ランキングの表だけは列が少なく元々収まるためカード化しない） */
     table, table.modal-table{min-width:0;}
     .table-wrap table,
@@ -576,11 +577,19 @@
     table.modal-table:not(.ranking-table) tbody{display:block;}
     .table-wrap table tr,
     table.modal-table:not(.ranking-table) tr{
-      display:block;
+      display:grid;
+      grid-template-columns:repeat(3, minmax(0, 1fr));
+      grid-template-areas:
+        "head head owner"
+        "rpm  nl   w"
+        "date act  act";
+      column-gap:10px;
+      row-gap:4px;
+      align-items:end;
       border:1px solid var(--border);
       border-radius:8px;
-      padding:10px 12px;
-      margin-bottom:10px;
+      padding:8px 10px;
+      margin-bottom:8px;
       background:var(--panel-2);
     }
     .table-wrap table tbody tr:last-child,
@@ -589,35 +598,64 @@
     table.modal-table:not(.ranking-table) td{
       display:block;
       border-bottom:none;
-      padding:5px 0;
+      padding:0;
+      min-width:0;
       white-space:normal;
     }
-    .table-wrap table td[data-label]::before,
-    table.modal-table:not(.ranking-table) td[data-label]::before{
-      content:attr(data-label);
+    /* 見出しは数値の上に短く出す（計測日・所有者は中身で分かるので見出しなし） */
+    .table-wrap table td[data-short]::before,
+    table.modal-table:not(.ranking-table) td[data-short]::before{
+      content:attr(data-short);
       display:block;
       color:var(--muted);
       font-size:10px;
-      font-family:'Rajdhani',sans-serif;
-      letter-spacing:.06em;
-      margin-bottom:2px;
+      font-family:'Noto Sans JP',sans-serif;
+      font-weight:400;
+      letter-spacing:.02em;
+      margin-bottom:1px;
+      white-space:nowrap;
     }
-    .table-wrap table td:first-child,
-    table.modal-table:not(.ranking-table) td:first-child{
-      font-size:16px;
-      padding-bottom:8px;
-      margin-bottom:6px;
-      border-bottom:1px solid var(--border);
+    td.c-no, td.c-date{grid-area:head;}
+    table.modal-table td.c-date{grid-area:head;font-size:15px;}
+    .table-wrap table td.c-date{grid-area:date;}
+    td.c-no{font-size:17px;}
+    td.c-owner{
+      grid-area:owner;
+      text-align:right;
+      color:var(--muted);
+      font-size:12px;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap !important;
     }
-    .table-wrap table td:first-child::before,
-    table.modal-table:not(.ranking-table) td:first-child::before{content:none;}
+    td.c-rpm{grid-area:rpm;}
+    td.c-rpmNl{grid-area:nl;}
+    td.c-w{grid-area:w;}
+    td.c-rpm, td.c-rpmNl, td.c-w{
+      font-size:17px;
+      font-variant-numeric:tabular-nums;
+      padding-top:5px !important;
+      border-top:1px solid var(--border) !important;
+      align-self:start;
+    }
+    td.c-rpm .delta, td.c-rpmNl .delta, td.c-w .delta{
+      display:block;
+      margin-left:0;
+      font-size:10px;
+      line-height:1.2;
+    }
+    .table-wrap table td.c-date{color:var(--muted);font-size:12px;align-self:center;}
     .table-wrap table td.action-cell,
     table.modal-table:not(.ranking-table) td.action-cell{
+      grid-area:act;
       text-align:right;
-      padding-top:8px;
-      margin-top:4px;
-      border-top:1px solid var(--border);
+      align-self:center;
     }
+    td.action-cell .edit-btn, td.action-cell .speed-btn, td.action-cell .del-btn{
+      padding:4px 8px;
+      margin-right:4px;
+    }
+    td.action-cell button:last-child{margin-right:0;}
     .rpm-bar-track{max-width:none;}
 
     table.modal-table.ranking-table td,
@@ -1150,6 +1188,16 @@ function colLabel(key){
   return col ? col.label : '';
 }
 
+// スマホのカードで数値を横に並べるときの短い見出し（単位込み）
+const SHORT_LABELS = {rpm:'負荷時 rpm', rpmNl:'無負荷 rpm', w:'消費電力 W'};
+
+// セルに見出し・短い見出し・配置用のクラス（c-<key>）を付ける
+function tagCell(td, key){
+  td.dataset.label = colLabel(key);
+  if(SHORT_LABELS[key]) td.dataset.short = SHORT_LABELS[key];
+  td.classList.add('c-' + key);
+}
+
 function getMotor(key){ return ALL_MOTORS.find(m => m.key===key); }
 function getEntries(key){ if(!db.entries[key]) db.entries[key]=[]; return db.entries[key]; }
 function getSort(key){ if(!db.sort[key]) db.sort[key] = {col:'rpm', dir:'desc'}; return db.sort[key]; }
@@ -1436,12 +1484,13 @@ function renderRows(){
     tdNo.textContent = e.no;
     tdNo.title = row.count > 1 ? `計測履歴（全${row.count}回）を表示` : '計測履歴を表示';
     tdNo.addEventListener('click', () => openHistoryModal(row.no));
+    tdNo.classList.add('c-no');
     tr.appendChild(tdNo);
 
     const rpmCell = cellMarkup(e.rpm, row.previous && row.previous.rpm, avg.rpm, 0);
     const tdRpm = document.createElement('td');
     tdRpm.className = 'num rpm-cell' + (rpmCell.cls ? ' '+rpmCell.cls : '');
-    tdRpm.dataset.label = colLabel('rpm');
+    tagCell(tdRpm, 'rpm');
     const pct = Math.max(2, (parseFloat(e.rpm)||0) / maxRpm * 100);
     tdRpm.innerHTML = `${rpmCell.html}<div class="rpm-bar-track"><div class="rpm-bar-fill" style="width:${pct}%"></div></div>`;
     tr.appendChild(tdRpm);
@@ -1450,19 +1499,19 @@ function renderRows(){
       const cell = cellMarkup(e[k], row.previous && row.previous[k], avg[k], d);
       const td = document.createElement('td');
       td.className = 'num' + (cell.cls ? ' '+cell.cls : '');
-      td.dataset.label = colLabel(k);
+      tagCell(td, k);
       td.innerHTML = cell.html;
       tr.appendChild(td);
     });
 
     const tdDate = document.createElement('td');
     tdDate.className = 'num';
-    tdDate.dataset.label = colLabel('date');
+    tagCell(tdDate, 'date');
     tdDate.textContent = e.date || '—';
     tr.appendChild(tdDate);
 
     const tdOwner = document.createElement('td');
-    tdOwner.dataset.label = colLabel('owner');
+    tagCell(tdOwner, 'owner');
     tdOwner.textContent = e.owner || '—';
     tr.appendChild(tdOwner);
 
@@ -2041,12 +2090,12 @@ function renderModalTable(no){
     const tr = document.createElement('tr');
 
     const tdDate = document.createElement('td');
-    tdDate.dataset.label = colLabel('date');
+    tagCell(tdDate, 'date');
     tdDate.textContent = (e.date || '—') + (idx===0 && row.count>1 ? '（最新）' : '');
     tr.appendChild(tdDate);
 
     const tdOwner = document.createElement('td');
-    tdOwner.dataset.label = colLabel('owner');
+    tagCell(tdOwner, 'owner');
     tdOwner.textContent = e.owner || '—';
     tr.appendChild(tdOwner);
 
@@ -2054,7 +2103,7 @@ function renderModalTable(no){
       const cell = cellMarkup(e[k], prevEntry && prevEntry[k], avg[k], d);
       const td = document.createElement('td');
       td.className = 'num' + (cell.cls ? ' '+cell.cls : '');
-      td.dataset.label = colLabel(k);
+      tagCell(td, k);
       td.innerHTML = cell.html;
       tr.appendChild(td);
     });
