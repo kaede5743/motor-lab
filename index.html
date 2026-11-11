@@ -727,6 +727,99 @@
     }
   }
 
+  /* 計測履歴は列とボタンが多いので、PCでは横スクロールが出ないよう少し広げる */
+  #modal-backdrop .modal-box{max-width:820px;}
+
+  /* ---------- 計測履歴の上の詳細（選別の目安） ---------- */
+  .motor-detail{
+    padding:14px 16px 16px;
+    border-bottom:1px solid var(--border);
+    background:var(--panel-2);
+  }
+  .md-grid{
+    display:grid;
+    grid-template-columns:repeat(3, minmax(0, 1fr));
+    gap:8px;
+  }
+  .md-card{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:8px 10px;
+    min-width:0;
+  }
+  .md-label{
+    font-size:10.5px;
+    color:var(--muted);
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .md-value{
+    font-family:'Rajdhani',sans-serif;
+    font-weight:700;
+    font-size:19px;
+    line-height:1.2;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+  }
+  .md-unit{font-size:11px;color:var(--muted);font-weight:600;margin-left:2px;}
+  .md-sub{
+    font-family:'Rajdhani',sans-serif;
+    font-weight:600;
+    font-size:12px;
+    color:var(--muted);
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .md-sub .rank{color:var(--text);}
+  .md-sub.top .rank, .md-sub.top{color:var(--yellow);}
+  .md-note{font-size:10px;color:var(--muted);margin-top:2px;}
+  .md-history{
+    margin-top:10px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:8px 10px 10px;
+  }
+  .md-history-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    gap:8px;
+  }
+  .md-spark{display:block;width:100%;height:64px;margin-top:6px;overflow:visible;}
+  .md-spark .line{fill:none;stroke:var(--yellow);stroke-width:2;stroke-linejoin:round;stroke-linecap:round;}
+  .md-spark .avg{stroke:var(--muted);stroke-width:1;stroke-dasharray:3 3;opacity:.7;}
+  .md-spark .dot{stroke:var(--yellow);stroke-width:6;stroke-linecap:round;}
+  .md-spark .dot.last{stroke-width:9;}
+  .md-spark .dot.last-in{stroke:var(--panel);stroke-width:4;}
+  .md-spark-axis{
+    display:flex;
+    justify-content:space-between;
+    font-size:10px;
+    color:var(--muted);
+    margin:2px 0 8px;
+  }
+  .md-chips{
+    display:grid;
+    grid-template-columns:repeat(3, minmax(0, 1fr));
+    gap:8px;
+  }
+  .md-chip .md-value{font-size:16px;}
+  .md-empty{font-size:12px;color:var(--muted);margin-top:4px;}
+  .md-legend{font-size:10.5px;line-height:1.5;color:var(--muted);margin-top:8px;}
+  .md-plus{color:var(--danger);}
+  .md-minus{color:var(--blue);}
+  @media (max-width:640px){
+    .motor-detail{padding:12px 12px 14px;}
+    .md-grid{gap:6px;}
+    .md-card{padding:7px 8px;}
+    .md-value{font-size:17px;}
+    .md-chips{gap:6px;}
+  }
+
   /* ---------- ログインゲート ---------- */
   .auth-overlay{
     position:fixed;
@@ -894,6 +987,7 @@
       <button class="modal-close" id="modal-close-btn">✕</button>
     </div>
     <div class="modal-body">
+      <div class="motor-detail" id="motor-detail"></div>
       <table class="modal-table">
         <thead><tr id="modal-thead"></tr></thead>
         <tbody id="modal-tbody"></tbody>
@@ -2171,12 +2265,139 @@ speedModalBackdrop.addEventListener('click', (ev) => {
   if(ev.target === speedModalBackdrop) closeSpeedModal();
 });
 
+/* ---------- 計測履歴の上の詳細（選別の目安） ---------- */
+// 順位は所有者の絞り込みに関係なく、同じ種類の全モーター（各番号の最新計測）の中で出す
+const motorDetailEl = document.getElementById('motor-detail');
+
+function num(v){ const n = parseFloat(v); return isNaN(n) ? null : n; }
+
+// 負荷時回転数 ÷ 無負荷回転数（負荷をかけても回転が落ちにくいほど高い）
+function holdRatio(e){
+  const a = num(e.rpm), b = num(e.rpmNl);
+  return (a !== null && b) ? a / b * 100 : null;
+}
+// 負荷時回転数 ÷ 消費電力（同じ速さで電気を食わないほど高い）
+function rpmPerWatt(e){
+  const a = num(e.rpm), w = num(e.w);
+  return (a !== null && w) ? a / w : null;
+}
+
+// values の中で value が何位か（大きいほど上位）。同じ値は同順位
+function rankOf(value, values){
+  if(value === null) return null;
+  const list = values.filter(v => v !== null);
+  return {rank: list.filter(v => v > value).length + 1, total: list.length};
+}
+
+function signedPct(p, decimals){
+  if(p === null || !isFinite(p)) return '—';
+  const str = Math.abs(p).toFixed(decimals);
+  if(Number(str) === 0) return '±0' + (decimals ? '.' + '0'.repeat(decimals) : '') + '%';
+  return (p > 0 ? '+' : '−') + str + '%';
+}
+function signClass(p){
+  if(p === null || !isFinite(p) || Number(Math.abs(p).toFixed(1)) === 0) return '';
+  return p > 0 ? 'md-plus' : 'md-minus';
+}
+
+function rankHtml(r){
+  if(!r) return '<div class="md-sub">—</div><div class="md-sub">&nbsp;</div>';
+  if(r.total < 2) return '<div class="md-sub">比較対象なし</div><div class="md-sub">&nbsp;</div>';
+  const top = Math.max(1, Math.round(r.rank / r.total * 100));
+  const cls = top <= 10 ? ' top' : '';
+  return `<div class="md-sub${cls}"><span class="rank">${r.rank}位</span> / ${r.total}</div><div class="md-sub${cls}">上位${top}%</div>`;
+}
+
+function detailCard(label, valueText, unit, subHtml){
+  return `<div class="md-card"><div class="md-label">${label}</div>`
+    + `<div class="md-value">${valueText}${unit ? `<span class="md-unit">${unit}</span>` : ''}</div>${subHtml}</div>`;
+}
+
+// 負荷時回転数の推移（古い→新しい）。点線は同じ種類の平均。
+// 横幅いっぱいに伸ばしても線や点が太らないよう、線は non-scaling-stroke、点は長さ0の丸い線で描く
+function sparklineSvg(values, avgVal){
+  const W = 300, H = 60, padX = 6, padY = 7;
+  const pool = avgVal !== null ? values.concat([avgVal]) : values;
+  let min = Math.min(...pool), max = Math.max(...pool);
+  if(max === min){ max += 1; min -= 1; }
+  const x = i => (padX + (values.length === 1 ? (W - padX*2) / 2 : i * (W - padX*2) / (values.length - 1))).toFixed(1);
+  const y = v => (padY + (max - v) / (max - min) * (H - padY*2)).toFixed(1);
+  const dot = (cx, cy, cls) => `<line class="${cls}" x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy}" vector-effect="non-scaling-stroke"/>`;
+  const pts = values.map((v, i) => `${x(i)},${y(v)}`).join(' ');
+  const dots = values.map((v, i) => i === values.length - 1
+    ? dot(x(i), y(v), 'dot last') + dot(x(i), y(v), 'dot last-in')
+    : dot(x(i), y(v), 'dot')).join('');
+  const avgLine = avgVal !== null
+    ? `<line class="avg" x1="${padX}" x2="${W - padX}" y1="${y(avgVal)}" y2="${y(avgVal)}" vector-effect="non-scaling-stroke"/>`
+    : '';
+  return `<svg class="md-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="負荷時回転数の推移">${avgLine}`
+    + `<polyline class="line" points="${pts}" vector-effect="non-scaling-stroke"/>${dots}</svg>`
+    + '<div class="md-spark-axis"><span>初回</span><span>最新</span></div>';
+}
+
+function renderMotorDetail(row){
+  const e = row.latest;
+  const all = getDisplayRows(currentKey).map(r => r.latest);
+  const typeAvg = {};
+  ['rpm','rpmNl','w'].forEach(k => {
+    const vals = all.map(x => num(x[k])).filter(v => v !== null);
+    typeAvg[k] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  });
+
+  const rpm = num(e.rpm), rpmNl = num(e.rpmNl), w = num(e.w);
+  const hold = holdRatio(e), eff = rpmPerWatt(e);
+  const wDiff = (w !== null && typeAvg.w) ? (w - typeAvg.w) / typeAvg.w * 100 : null;
+
+  let html = '<div class="md-grid">';
+  html += detailCard('負荷時回転数', fmt(e.rpm, 0), 'rpm', rankHtml(rankOf(rpm, all.map(x => num(x.rpm)))));
+  html += detailCard('無負荷回転数', fmt(e.rpmNl, 0), 'rpm', rankHtml(rankOf(rpmNl, all.map(x => num(x.rpmNl)))));
+  html += detailCard('消費電力', fmt(e.w, 2), 'W',
+    `<div class="md-sub">平均比</div><div class="md-sub ${signClass(wDiff)}">${signedPct(wDiff, 1)}</div>`);
+  html += detailCard('回転の粘り', hold === null ? '—' : hold.toFixed(1), '%',
+    rankHtml(rankOf(hold, all.map(holdRatio))));
+  html += detailCard('電力あたり回転', eff === null ? '—' : fmt(eff, 0), 'rpm/W',
+    rankHtml(rankOf(eff, all.map(rpmPerWatt))));
+  html += detailCard('計測', String(row.count), '回',
+    `<div class="md-sub">最新</div><div class="md-sub">${escapeHtml(shortDate(e.date))}</div>`);
+  html += '</div>';
+  html += '<div class="md-legend">回転の粘り＝負荷時÷無負荷（負荷で回転が落ちにくいほど高い）／電力あたり回転＝負荷時÷消費電力（同じ速さで電気を食わないほど高い）。順位は同じ種類の全モーターの最新計測で比較。</div>';
+
+  // 履歴（負荷時回転数）から見える変化
+  const series = row.history.slice().reverse().map(x => num(x.rpm)).filter(v => v !== null); // 古い→新しい
+  html += '<div class="md-history"><div class="md-history-head">'
+    + '<div class="md-label">負荷時回転数の推移</div>'
+    + (series.length >= 2 ? '<div class="md-note">点線＝この種類の平均</div>' : '')
+    + '</div>';
+  if(series.length >= 2){
+    const first = series[0], last = series[series.length - 1];
+    const best = Math.max(...series);
+    const mean = series.reduce((a, b) => a + b, 0) / series.length;
+    const sd = Math.sqrt(series.reduce((a, b) => a + (b - mean) ** 2, 0) / (series.length - 1));
+    const fromFirst = (last - first) / first * 100;
+    const fromBest = (last - best) / best * 100;
+    const spread = sd / mean * 100;
+    html += sparklineSvg(series, typeAvg.rpm);
+    html += '<div class="md-chips">'
+      + `<div class="md-chip"><div class="md-label">慣らし効果</div><div class="md-value ${signClass(fromFirst)}">${signedPct(fromFirst, 1)}</div><div class="md-note">初回 ${fmt(first, 0)} から</div></div>`
+      + `<div class="md-chip"><div class="md-label">最高値との差</div><div class="md-value ${signClass(fromBest)}">${signedPct(fromBest, 1)}</div><div class="md-note">最高 ${fmt(best, 0)}</div></div>`
+      + `<div class="md-chip"><div class="md-label">ばらつき</div><div class="md-value">±${spread.toFixed(1)}%</div><div class="md-note">計測ごとの差</div></div>`
+      + '</div>';
+  }else{
+    html += '<div class="md-empty">計測が2回以上になると、推移・慣らし効果・最高値との差・ばらつきが出ます。</div>';
+  }
+  html += '</div>';
+
+  motorDetailEl.innerHTML = html;
+}
+
 function renderModalTable(no){
   const row = getDisplayRows(currentKey).find(r => r.no === no);
   if(!row){ closeModal(); return; }
 
   const avg = computeAverages(currentKey);
   const history = row.history; // 新しい→古い
+
+  renderMotorDetail(row);
 
   modalThead.innerHTML = ['date','owner','rpm','rpmNl','w'].map(k =>
     `<th class="c-${k}" data-short="${SHORT_LABELS[k]}"><span class="th-text">${colLabel(k)}</span></th>`
