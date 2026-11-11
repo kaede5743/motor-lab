@@ -565,35 +565,61 @@
     h1{font-size:24px;}
     h1 span{display:block;margin:4px 0 0;}
 
-    /* 横スクロールを避けるため、テーブルを1行1カードのレイアウトに変える。
-       3つの測定値はどのカードでも同じ位置に横並びにして、上下のカードと見比べやすくする
-       （所有者別ランキングの表だけは列が少なく元々収まるためカード化しない） */
+    /* 横スクロールを避けるため、PC表と同じ並びのまま1件を2段に折り返す。
+       1段目: 番号（履歴では計測日）と3つの測定値を横並び ／ 2段目: 計測日・所有者と操作ボタン。
+       見出しは表の上に1回だけ短い表記で出す（タップで並べ替えもできる）。
+       （所有者別ランキングの表だけは列が少なく元々収まるのでそのまま） */
     table, table.modal-table{min-width:0;}
     .table-wrap table,
-    table.modal-table:not(.ranking-table){display:block;}
+    table.modal-table:not(.ranking-table),
     .table-wrap table thead,
-    table.modal-table:not(.ranking-table) thead{display:none;}
+    table.modal-table:not(.ranking-table) thead,
     .table-wrap table tbody,
     table.modal-table:not(.ranking-table) tbody{display:block;}
     .table-wrap table tr,
     table.modal-table:not(.ranking-table) tr{
       display:grid;
-      grid-template-columns:repeat(3, minmax(0, 1fr));
+      grid-template-columns:minmax(0, .9fr) repeat(3, minmax(0, 1fr));
       grid-template-areas:
-        "head head owner"
-        "rpm  nl   w"
-        "date act  act";
-      column-gap:10px;
-      row-gap:4px;
-      align-items:end;
-      border:1px solid var(--border);
-      border-radius:8px;
-      padding:8px 10px;
-      margin-bottom:8px;
-      background:var(--panel-2);
+        "key rpm nl w"
+        "sub1 sub2 act act";
+      column-gap:8px;
+      row-gap:6px;
+      align-items:center;
+      padding:10px 12px;
+      border-bottom:1px solid #24282e;
     }
     .table-wrap table tbody tr:last-child,
-    table.modal-table:not(.ranking-table) tbody tr:last-child{margin-bottom:0;}
+    table.modal-table:not(.ranking-table) tbody tr:last-child{border-bottom:none;}
+    .table-wrap table thead tr,
+    table.modal-table:not(.ranking-table) thead tr{
+      grid-template-areas:"key rpm nl w";
+      padding-top:8px;
+      padding-bottom:8px;
+      border-bottom:1px solid var(--border);
+    }
+    .table-wrap table th,
+    table.modal-table:not(.ranking-table) th{
+      display:block;
+      padding:0;
+      border-bottom:none;
+      font-size:11px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      position:static;
+      letter-spacing:0;
+    }
+    .table-wrap table th .th-text,
+    table.modal-table:not(.ranking-table) th .th-text{display:none;}
+    .table-wrap table th::before,
+    table.modal-table:not(.ranking-table) th::before{content:attr(data-short);}
+    .table-wrap table th .arrow{margin-left:1px;}
+    /* 2段目に回す列の見出しと操作列の見出しは出さない */
+    .table-wrap table th.c-date, .table-wrap table th.c-owner,
+    table.modal-table th.c-owner, th.action-cell{display:none !important;}
+    table.modal-table:not(.ranking-table) thead{position:sticky;top:0;background:var(--panel);z-index:1;}
+
     .table-wrap table td,
     table.modal-table:not(.ranking-table) td{
       display:block;
@@ -602,54 +628,33 @@
       min-width:0;
       white-space:normal;
     }
-    /* 見出しは数値の上に短く出す（計測日・所有者は中身で分かるので見出しなし） */
-    .table-wrap table td[data-short]::before,
-    table.modal-table:not(.ranking-table) td[data-short]::before{
-      content:attr(data-short);
-      display:block;
-      color:var(--muted);
-      font-size:10px;
-      font-family:'Noto Sans JP',sans-serif;
-      font-weight:400;
-      letter-spacing:.02em;
-      margin-bottom:1px;
-      white-space:nowrap;
-    }
-    td.c-no, td.c-date{grid-area:head;}
-    table.modal-table td.c-date{grid-area:head;font-size:15px;}
-    .table-wrap table td.c-date{grid-area:date;}
-    td.c-no{font-size:17px;}
-    td.c-owner{
-      grid-area:owner;
-      text-align:right;
-      color:var(--muted);
-      font-size:12px;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap !important;
-    }
-    td.c-rpm{grid-area:rpm;}
-    td.c-rpmNl{grid-area:nl;}
-    td.c-w{grid-area:w;}
-    td.c-rpm, td.c-rpmNl, td.c-w{
-      font-size:17px;
-      font-variant-numeric:tabular-nums;
-      padding-top:5px !important;
-      border-top:1px solid var(--border) !important;
-      align-self:start;
-    }
+    .c-no, table.modal-table .c-date{grid-area:key;}
+    .c-rpm{grid-area:rpm;}
+    .c-rpmNl{grid-area:nl;}
+    .c-w{grid-area:w;}
+    .table-wrap table .c-date{grid-area:sub1;}
+    .table-wrap table .c-owner{grid-area:sub2;}
+    table.modal-table .c-owner{grid-area:sub1 / sub1 / sub2 / sub2;}
+    td.c-no{font-size:16px;}
+    table.modal-table td.c-date{font-size:13px;}
+    td.c-rpm, td.c-rpmNl, td.c-w{font-size:16px;font-variant-numeric:tabular-nums;}
     td.c-rpm .delta, td.c-rpmNl .delta, td.c-w .delta{
       display:block;
       margin-left:0;
       font-size:10px;
       line-height:1.2;
     }
-    .table-wrap table td.c-date{color:var(--muted);font-size:12px;align-self:center;}
+    .table-wrap table td.c-date, td.c-owner{
+      color:var(--muted);
+      font-size:12px;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap !important;
+    }
     .table-wrap table td.action-cell,
     table.modal-table:not(.ranking-table) td.action-cell{
       grid-area:act;
       text-align:right;
-      align-self:center;
     }
     td.action-cell .edit-btn, td.action-cell .speed-btn, td.action-cell .del-btn{
       padding:4px 8px;
@@ -1189,7 +1194,7 @@ function colLabel(key){
 }
 
 // スマホのカードで数値を横に並べるときの短い見出し（単位込み）
-const SHORT_LABELS = {rpm:'負荷時 rpm', rpmNl:'無負荷 rpm', w:'消費電力 W'};
+const SHORT_LABELS = {no:'番号', rpm:'負荷時 rpm', rpmNl:'無負荷 rpm', w:'消費電力 W', date:'計測日', owner:'所有者'};
 
 // セルに見出し・短い見出し・配置用のクラス（c-<key>）を付ける
 function tagCell(td, key){
@@ -1376,8 +1381,9 @@ function renderHead(){
   COLUMNS.forEach(col => {
     const th = document.createElement('th');
     const isSorted = sort.col === col.key;
-    th.className = isSorted ? 'sorted' : '';
-    th.innerHTML = col.label + (isSorted ? `<span class="arrow">${sort.dir==='desc'?'▼':'▲'}</span>` : '');
+    th.className = (isSorted ? 'sorted ' : '') + 'c-' + col.key;
+    th.dataset.short = SHORT_LABELS[col.key] || col.label;
+    th.innerHTML = `<span class="th-text">${col.label}</span>` + (isSorted ? `<span class="arrow">${sort.dir==='desc'?'▼':'▲'}</span>` : '');
     th.addEventListener('click', () => {
       const s = getSort(currentKey);
       if(s.col === col.key){
@@ -1392,6 +1398,7 @@ function renderHead(){
     theadRow.appendChild(th);
   });
   const thDel = document.createElement('th');
+  thDel.className = 'action-cell';
   thDel.textContent = '';
   theadRow.appendChild(thDel);
 }
@@ -2082,7 +2089,9 @@ function renderModalTable(no){
   const avg = computeAverages(currentKey);
   const history = row.history; // 新しい→古い
 
-  modalThead.innerHTML = '<th>計測日</th><th>所有者</th><th>負荷時回転数(rpm)</th><th>無負荷回転数(rpm)</th><th>消費電力(W)</th><th></th>';
+  modalThead.innerHTML = ['date','owner','rpm','rpmNl','w'].map(k =>
+    `<th class="c-${k}" data-short="${SHORT_LABELS[k]}"><span class="th-text">${colLabel(k)}</span></th>`
+  ).join('') + '<th class="action-cell"></th>';
   modalTbody.innerHTML = '';
 
   history.forEach((e, idx) => {
