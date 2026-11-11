@@ -365,6 +365,7 @@
   tbody tr:hover{background:rgba(255,255,255,.02);}
   tbody tr:last-child td{border-bottom:none;}
   td.rpm-cell{position:relative;}
+  td.c-meta, .d-short, .latest-tag, .no-date{display:none;}
   .val-up{color:var(--danger);}
   .val-down{color:var(--blue);}
   .delta{font-size:11px;font-weight:600;margin-left:4px;color:var(--muted)!important;}
@@ -566,7 +567,7 @@
     h1 span{display:block;margin:4px 0 0;}
 
     /* 横スクロールを避けるため、PC表と同じ並びのまま1件を2段に折り返す。
-       1段目: 番号（履歴では計測日）と3つの測定値を横並び ／ 2段目: 計測日・所有者と操作ボタン。
+       計測履歴: 1段目に計測日と3つの測定値を横並び ／ 2段目に所有者と操作ボタン（一覧は下で上書き）。
        見出しは表の上に1回だけ短い表記で出す（タップで並べ替えもできる）。
        （所有者別ランキングの表だけは列が少なく元々収まるのでそのまま） */
     table, table.modal-table{min-width:0;}
@@ -579,10 +580,10 @@
     .table-wrap table tr,
     table.modal-table:not(.ranking-table) tr{
       display:grid;
-      grid-template-columns:minmax(0, .9fr) repeat(3, minmax(0, 1fr));
+      grid-template-columns:minmax(0, 1fr) 66px 66px 54px;
       grid-template-areas:
         "key rpm nl w"
-        "sub1 sub2 act act";
+        "sub act act act";
       column-gap:8px;
       row-gap:6px;
       align-items:center;
@@ -632,11 +633,22 @@
     .c-rpm{grid-area:rpm;}
     .c-rpmNl{grid-area:nl;}
     .c-w{grid-area:w;}
-    .table-wrap table .c-date{grid-area:sub1;}
-    .table-wrap table .c-owner{grid-area:sub2;}
-    table.modal-table .c-owner{grid-area:sub1 / sub1 / sub2 / sub2;}
+    table.modal-table .c-owner{grid-area:sub;}
     td.c-no{font-size:16px;}
-    table.modal-table td.c-date{font-size:13px;}
+    table.modal-table td.c-date{font-size:14px;line-height:1.2;}
+    table.modal-table .d-full{display:none;}
+    table.modal-table .d-short{display:inline;}
+    table.modal-table .latest-tag{
+      display:inline-block;
+      margin-left:5px;
+      padding:1px 5px;
+      border-radius:4px;
+      font-size:10px;
+      font-family:'Noto Sans JP',sans-serif;
+      color:var(--yellow);
+      border:1px solid rgba(255,204,51,.45);
+      vertical-align:2px;
+    }
     td.c-rpm, td.c-rpmNl, td.c-w{font-size:16px;font-variant-numeric:tabular-nums;}
     td.c-rpm .delta, td.c-rpmNl .delta, td.c-w .delta{
       display:block;
@@ -662,6 +674,50 @@
     }
     td.action-cell button:last-child{margin-right:0;}
     .rpm-bar-track{max-width:none;}
+
+    /* 一覧は比べることに専念して1台1行に詰める。操作ボタンは出さず、
+       行をタップして開く計測履歴の画面（編集・速度・削除）に回す。
+       番号の下に計測日・所有者を小さく、負荷時回転数の下に速さのバー */
+    .table-wrap table tr{
+      grid-template-areas:
+        "key  rpm nl w"
+        "meta rpm nl w";
+      column-gap:6px;
+      row-gap:2px;
+      padding:8px 10px;
+    }
+    .table-wrap table thead tr{grid-template-areas:"key rpm nl w";}
+    .table-wrap table tbody tr{cursor:pointer;-webkit-tap-highlight-color:transparent;}
+    .table-wrap table tbody tr:active{background:rgba(255,255,255,.05);}
+    .table-wrap table td.c-date,
+    .table-wrap table td.c-owner,
+    .table-wrap table td.action-cell{display:none;}
+    .table-wrap table td.c-no{align-self:end;line-height:1.15;}
+    .table-wrap table td.c-no{white-space:nowrap !important;overflow:hidden;}
+    .table-wrap table .no-date{
+      display:inline-block; /* 番号の点線の下線を日付に掛けない */
+      margin-left:5px;
+      color:var(--muted);
+      font-size:10.5px;
+      font-weight:500;
+      letter-spacing:-.01em;
+    }
+    .table-wrap table td.c-meta{
+      grid-area:meta;
+      display:block;
+      align-self:start;
+      color:var(--muted);
+      font-size:11px;
+      font-family:'Noto Sans JP',sans-serif;
+      line-height:1.4;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap !important;
+    }
+    .table-wrap table td.c-rpm,
+    .table-wrap table td.c-rpmNl,
+    .table-wrap table td.c-w{align-self:center;}
+    .table-wrap table .rpm-bar-track{height:3px;margin-top:3px;}
 
     table.modal-table.ranking-table td,
     table.modal-table.ranking-table th{
@@ -1193,8 +1249,23 @@ function colLabel(key){
   return col ? col.label : '';
 }
 
+// スマホ表示（一覧を1台1行に詰めて、操作は履歴画面に回す幅）かどうか
+const compactMql = window.matchMedia('(max-width:640px)');
+function isCompactView(){ return compactMql.matches; }
+
+// 計測日を短く（今年なら「11/08」、それ以外は「25/11/08」）
+function shortDate(d){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d || '');
+  if(!m) return d || '—';
+  return (Number(m[1]) === new Date().getFullYear() ? '' : m[1].slice(2) + '/') + m[2] + '/' + m[3];
+}
+
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
 // スマホのカードで数値を横に並べるときの短い見出し（単位込み）
-const SHORT_LABELS = {no:'番号', rpm:'負荷時 rpm', rpmNl:'無負荷 rpm', w:'消費電力 W', date:'計測日', owner:'所有者'};
+const SHORT_LABELS = {no:'番号', rpm:'負荷時rpm', rpmNl:'無負荷rpm', w:'電力W', date:'計測日', owner:'所有者'};
 
 // セルに見出し・短い見出し・配置用のクラス（c-<key>）を付ける
 function tagCell(td, key){
@@ -1489,10 +1560,28 @@ function renderRows(){
     const tdNo = document.createElement('td');
     tdNo.className = 'no-link';
     tdNo.textContent = e.no;
+    // スマホ表示だけ、番号の横に短い計測日を添える（PC表示では隠す）
+    const noDate = document.createElement('span');
+    noDate.className = 'no-date';
+    noDate.textContent = shortDate(e.date);
+    tdNo.appendChild(noDate);
     tdNo.title = row.count > 1 ? `計測履歴（全${row.count}回）を表示` : '計測履歴を表示';
     tdNo.addEventListener('click', () => openHistoryModal(row.no));
     tdNo.classList.add('c-no');
     tr.appendChild(tdNo);
+
+    // スマホ表示だけで使う、番号の下の所有者（PC表示では隠す）
+    const tdMeta = document.createElement('td');
+    tdMeta.className = 'c-meta';
+    tdMeta.textContent = e.owner || '';
+    tr.appendChild(tdMeta);
+
+    // スマホ表示では操作ボタンを一覧に出さないので、行のどこをタップしても履歴（＝編集・速度・削除）を開く
+    tr.addEventListener('click', (ev) => {
+      if(!isCompactView()) return;
+      if(ev.target.closest('.no-link, button')) return;
+      openHistoryModal(row.no);
+    });
 
     const rpmCell = cellMarkup(e.rpm, row.previous && row.previous.rpm, avg.rpm, 0);
     const tdRpm = document.createElement('td');
@@ -2100,7 +2189,10 @@ function renderModalTable(no){
 
     const tdDate = document.createElement('td');
     tagCell(tdDate, 'date');
-    tdDate.textContent = (e.date || '—') + (idx===0 && row.count>1 ? '（最新）' : '');
+    // PC は「2026-11-10（最新）」、スマホは「11/10」＋小さな「最新」
+    tdDate.innerHTML = `<span class="d-full">${escapeHtml(e.date || '—')}${idx===0 && row.count>1 ? '（最新）' : ''}</span>`
+      + `<span class="d-short">${escapeHtml(shortDate(e.date))}</span>`
+      + (idx===0 && row.count>1 ? '<span class="latest-tag">最新</span>' : '');
     tr.appendChild(tdDate);
 
     const tdOwner = document.createElement('td');
@@ -2120,6 +2212,11 @@ function renderModalTable(no){
     const tdActions = document.createElement('td');
     tdActions.className = 'action-cell';
 
+    const speedBtn = document.createElement('button');
+    speedBtn.className = 'speed-btn';
+    speedBtn.textContent = '速度';
+    speedBtn.addEventListener('click', () => openSpeedModal(e));
+
     if(canEdit){
       const editBtn = document.createElement('button');
       editBtn.className = 'edit-btn';
@@ -2129,7 +2226,12 @@ function renderModalTable(no){
         enterEditMode(e);
       });
       tdActions.appendChild(editBtn);
+    }
 
+    // 速度は誰でも使える（スマホでは一覧にボタンを出さないので、ここから開く）
+    tdActions.appendChild(speedBtn);
+
+    if(canEdit){
       const delBtn = document.createElement('button');
       delBtn.className = 'del-btn';
       delBtn.textContent = '削除';
