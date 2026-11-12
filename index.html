@@ -679,14 +679,18 @@
        行をタップして開く計測履歴の画面（編集・速度・削除）に回す。
        番号の下に計測日・所有者を小さく、負荷時回転数の下に速さのバー */
     .table-wrap table tr{
+      grid-template-columns:minmax(0, 1fr) 40px 62px 62px 50px;
       grid-template-areas:
-        "key  rpm nl w"
-        "meta rpm nl w";
+        "key  sc rpm nl w"
+        "meta sc rpm nl w";
       column-gap:6px;
       row-gap:2px;
       padding:8px 10px;
     }
-    .table-wrap table thead tr{grid-template-areas:"key rpm nl w";}
+    .table-wrap table thead tr{grid-template-areas:"key sc rpm nl w";}
+    .c-score{grid-area:sc;}
+    td.c-score{font-size:16px;font-variant-numeric:tabular-nums;}
+    td.c-score .delta{display:block;margin-left:0;font-size:10px;line-height:1.2;color:var(--muted);}
     .table-wrap table tbody tr{cursor:pointer;-webkit-tap-highlight-color:transparent;}
     .table-wrap table tbody tr:active{background:rgba(255,255,255,.05);}
     .table-wrap table td.c-date,
@@ -889,7 +893,7 @@
 <header>
   <div class="eyebrow">MINI 4WD &nbsp;/&nbsp; MOTOR DATABASE</div>
   <h1>モーターラボ<span>モーター管理</span></h1>
-  <p class="measure-note">KaedeSystem モーターマネージャーの「計測」での測定値です（負荷時: セレクター付き 2.8V・105mΩ・10秒 ／ 無負荷: 3.0V・10秒）。</p>
+  <p class="measure-note">KaedeSystem モーターマネージャーの「計測」での測定値です（セレクター付き 負荷L: 2.3V・10秒 → 2.8V・105mΩ・10秒 ／ 負荷H: 2.8V・105mΩ・10秒 ／ 無負荷: 3.0V・10秒。負荷時回転数と消費電力は 負荷L と 負荷H の平均。総合は 速さ50・粘り20・効率20・安定性10 の配分で、同じ種類の中での位置から出した点）。</p>
   <div class="sync-status" id="sync-status">● ローカル保存のみ</div>
   <div class="sister-apps">
     <span class="sister-apps-label">race_manager登録者の連携アプリ</span>
@@ -1084,6 +1088,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-functions-compat.js"></script>
+<!-- 総合点(速さ50・粘り20・効率20・安定性10)。KaedeSystem 本体と同じ式 -->
+<script src="balance.js"></script>
 
 <script>
 /* ---------- Firebase 同期設定 ---------- */
@@ -1330,6 +1336,8 @@ axisToggleBtn.addEventListener('click', () => {
 /* ---------- パネル（フォーム＋表）描画 ---------- */
 const COLUMNS = [
   {key:'no',   label:'番号',   sortable:true, type:'text'},
+  // 総合点は保存した値ではなく、表示のたびに balance.js で出す(entry には書かない)
+  {key:'score',label:'総合 (点)', sortable:true, type:'num'},
   {key:'rpm',  label:'負荷時回転数 (rpm)', sortable:true, type:'num'},
   {key:'rpmNl',label:'無負荷回転数 (rpm)', sortable:true, type:'num'},
   {key:'w',    label:'消費電力 (W)', sortable:true, type:'num'},
@@ -1359,7 +1367,13 @@ function escapeHtml(str){
 }
 
 // スマホのカードで数値を横に並べるときの短い見出し（単位込み）
-const SHORT_LABELS = {no:'番号', rpm:'負荷時rpm', rpmNl:'無負荷rpm', w:'電力W', date:'計測日', owner:'所有者'};
+const SHORT_LABELS = {no:'番号', score:'総合', rpm:'負荷時rpm', rpmNl:'無負荷rpm', w:'電力W', date:'計測日', owner:'所有者'};
+
+// その種類の総合点(番号 → {score, rank, total, parts})。全員分の最新計測で出す(所有者の絞り込みは使わない)
+function balanceMap(key){
+  if(!window.MotorBalance) return new Map();
+  return MotorBalance.balanceScores(getDisplayRows(key).map(r => r.latest));
+}
 
 // セルに見出し・短い見出し・配置用のクラス（c-<key>）を付ける
 function tagCell(td, key){
@@ -1625,8 +1639,11 @@ function renderRows(){
 
   const groupStats = getGroupStats(currentKey);
 
+  const bal = balanceMap(currentKey);
+  const valueOf = (row) => col.key === 'score' ? (bal.has(row.no) ? bal.get(row.no).score : NaN) : row.latest[col.key];
+
   rows.sort((x,y) => {
-    let a = x.latest[col.key], b = y.latest[col.key];
+    let a = valueOf(x), b = valueOf(y);
     if(col.type === 'num'){
       // 値がない行は並び順の向きにかかわらず最後に回す
       a = parseFloat(a); b = parseFloat(b);
@@ -1636,6 +1653,8 @@ function renderRows(){
     let cmp;
     if(col.type === 'num') cmp = a - b;
     else cmp = a.localeCompare(b, 'ja');
+    // 総合が同点のときは総合の順位(同点は負荷時回転数の高い方が上)で並べる
+    if(cmp === 0 && col.key === 'score') cmp = bal.get(y.no).rank - bal.get(x.no).rank;
     return sort.dir === 'desc' ? -cmp : cmp;
   });
 
@@ -1676,6 +1695,15 @@ function renderRows(){
       if(ev.target.closest('.no-link, button')) return;
       openHistoryModal(row.no);
     });
+
+    // 総合点(負荷L・H の形の計測だけ。負荷1点の頃の行は —)
+    const b = bal.get(row.no);
+    const tdScore = document.createElement('td');
+    tdScore.className = 'num';
+    tagCell(tdScore, 'score');
+    tdScore.innerHTML = b ? `${b.score}<span class="delta">${b.rank}位</span>` : '—';
+    if(b) tdScore.title = `速さ ${Math.round(b.parts.speed*100)}・粘り ${Math.round(b.parts.drop*100)}・効率 ${Math.round(b.parts.eff*100)}・安定 ${Math.round(b.parts.stab*100)}`;
+    tr.appendChild(tdScore);
 
     const rpmCell = cellMarkup(e.rpm, row.previous && row.previous.rpm, avg.rpm, 0);
     const tdRpm = document.createElement('td');
@@ -2348,7 +2376,13 @@ function renderMotorDetail(row){
   const hold = holdRatio(e), eff = rpmPerWatt(e);
   const wDiff = (w !== null && typeAvg.w) ? (w - typeAvg.w) / typeAvg.w * 100 : null;
 
+  const b = balanceMap(currentKey).get(row.no);
+
   let html = '<div class="md-grid">';
+  html += detailCard('総合', b ? String(b.score) : '—', '点',
+    b ? `<div class="md-sub">${b.rank}位 / ${b.total}台</div>`
+      + `<div class="md-sub">速さ${Math.round(b.parts.speed*100)} 粘り${Math.round(b.parts.drop*100)} 効率${Math.round(b.parts.eff*100)} 安定${Math.round(b.parts.stab*100)}</div>`
+      : '<div class="md-sub">負荷L・H の計測のみ</div>');
   html += detailCard('負荷時回転数', fmt(e.rpm, 0), 'rpm', rankHtml(rankOf(rpm, all.map(x => num(x.rpm)))));
   html += detailCard('無負荷回転数', fmt(e.rpmNl, 0), 'rpm', rankHtml(rankOf(rpmNl, all.map(x => num(x.rpmNl)))));
   html += detailCard('消費電力', fmt(e.w, 2), 'W',
@@ -2360,7 +2394,7 @@ function renderMotorDetail(row){
   html += detailCard('計測', String(row.count), '回',
     `<div class="md-sub">最新</div><div class="md-sub">${escapeHtml(shortDate(e.date))}</div>`);
   html += '</div>';
-  html += '<div class="md-legend">回転の粘り＝負荷時÷無負荷（負荷で回転が落ちにくいほど高い）／電力あたり回転＝負荷時÷消費電力（同じ速さで電気を食わないほど高い）。順位は同じ種類の全モーターの最新計測で比較。</div>';
+  html += '<div class="md-legend">総合＝速さ50・粘り(負荷H÷負荷L)20・効率(負荷時÷消費電力)20・安定性10 の配分で、同じ種類の中での位置から出した点（負荷L・H の計測だけ）。回転の粘り＝負荷時÷無負荷（負荷で回転が落ちにくいほど高い）／電力あたり回転＝負荷時÷消費電力（同じ速さで電気を食わないほど高い）。順位は同じ種類の全モーターの最新計測で比較。</div>';
 
   // 履歴（負荷時回転数）から見える変化
   const series = row.history.slice().reverse().map(x => num(x.rpm)).filter(v => v !== null); // 古い→新しい
