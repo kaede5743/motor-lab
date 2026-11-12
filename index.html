@@ -365,7 +365,7 @@
   tbody tr:hover{background:rgba(255,255,255,.02);}
   tbody tr:last-child td{border-bottom:none;}
   td.rpm-cell{position:relative;}
-  td.c-meta, .d-short, .latest-tag, .no-date{display:none;}
+  td.c-meta, .d-short, .latest-tag, .no-date, .lh-sub{display:none;}
   .val-up{color:var(--danger);}
   .val-down{color:var(--blue);}
   .delta{font-size:11px;font-weight:600;margin-left:4px;color:var(--muted)!important;}
@@ -722,6 +722,10 @@
     .table-wrap table td.c-rpmNl,
     .table-wrap table td.c-w{align-self:center;}
     .table-wrap table .rpm-bar-track{height:3px;margin-top:3px;}
+    /* スマホ表示: 負荷L・H の列は出さず、負荷時回転数の下に小さく添える */
+    .table-wrap table th.c-rpmL, .table-wrap table th.c-rpmH,
+    .table-wrap table td.c-rpmL, .table-wrap table td.c-rpmH{display:none !important;}
+    .table-wrap table .lh-sub{display:block;font-size:10px;line-height:1.2;color:var(--muted);white-space:nowrap;}
 
     table.modal-table.ranking-table td,
     table.modal-table.ranking-table th{
@@ -1339,6 +1343,8 @@ const COLUMNS = [
   // 総合点は保存した値ではなく、表示のたびに balance.js で出す(entry には書かない)
   {key:'score',label:'総合 (点)', sortable:true, type:'num'},
   {key:'rpm',  label:'負荷時回転数 (rpm)', sortable:true, type:'num'},
+  {key:'rpmL', label:'負荷L (rpm)', sortable:true, type:'num'},
+  {key:'rpmH', label:'負荷H (rpm)', sortable:true, type:'num'},
   {key:'rpmNl',label:'無負荷回転数 (rpm)', sortable:true, type:'num'},
   {key:'w',    label:'消費電力 (W)', sortable:true, type:'num'},
   {key:'date', label:'計測日',   sortable:true, type:'text'},
@@ -1367,7 +1373,7 @@ function escapeHtml(str){
 }
 
 // スマホのカードで数値を横に並べるときの短い見出し（単位込み）
-const SHORT_LABELS = {no:'番号', score:'総合', rpm:'負荷時rpm', rpmNl:'無負荷rpm', w:'電力W', date:'計測日', owner:'所有者'};
+const SHORT_LABELS = {no:'番号', score:'総合', rpm:'負荷時rpm', rpmL:'負荷L', rpmH:'負荷H', rpmNl:'無負荷rpm', w:'電力W', date:'計測日', owner:'所有者'};
 
 // その種類の総合点(番号 → {score, rank, total, parts})。全員分の最新計測で出す(所有者の絞り込みは使わない)
 function balanceMap(key){
@@ -1503,7 +1509,7 @@ function getVisibleRows(key){
 }
 
 // 一覧表に表示されている値（各モーターの最新計測）を元に平均を算出
-const VALUE_COLS = ['rpm','rpmNl','w'];
+const VALUE_COLS = ['rpm','rpmL','rpmH','rpmNl','w'];
 function computeAverages(key){
   const rows = getVisibleRows(key);
   const sums = {}, counts = {};
@@ -1710,8 +1716,20 @@ function renderRows(){
     tdRpm.className = 'num rpm-cell' + (rpmCell.cls ? ' '+rpmCell.cls : '');
     tagCell(tdRpm, 'rpm');
     const pct = Math.max(2, (parseFloat(e.rpm)||0) / maxRpm * 100);
-    tdRpm.innerHTML = `${rpmCell.html}<div class="rpm-bar-track"><div class="rpm-bar-fill" style="width:${pct}%"></div></div>`;
+    // スマホ表示では負荷L・H の列を出さないので、負荷時回転数の下に小さく添える(PC表示では隠す)
+    const lhSub = (e.rpmL || e.rpmH) ? `<div class="lh-sub">L ${fmt(e.rpmL, 0)} / H ${fmt(e.rpmH, 0)}</div>` : '';
+    tdRpm.innerHTML = `${rpmCell.html}${lhSub}<div class="rpm-bar-track"><div class="rpm-bar-fill" style="width:${pct}%"></div></div>`;
     tr.appendChild(tdRpm);
+
+    // 負荷L・負荷H(負荷L・H の計測だけ。負荷1点の頃の行は —)
+    ['rpmL','rpmH'].forEach(k => {
+      const cell = cellMarkup(e[k], row.previous && row.previous[k], avg[k], 0);
+      const td = document.createElement('td');
+      td.className = 'num' + (cell.cls ? ' '+cell.cls : '');
+      tagCell(td, k);
+      td.innerHTML = cell.html;
+      tr.appendChild(td);
+    });
 
     [['rpmNl',0],['w',2]].forEach(([k,d]) => {
       const cell = cellMarkup(e[k], row.previous && row.previous[k], avg[k], d);
@@ -2381,9 +2399,23 @@ function renderMotorDetail(row){
   let html = '<div class="md-grid">';
   html += detailCard('総合', b ? String(b.score) : '—', '点',
     b ? `<div class="md-sub">${b.rank}位 / ${b.total}台</div>`
-      + `<div class="md-sub">速さ${Math.round(b.parts.speed*100)} 粘り${Math.round(b.parts.drop*100)} 効率${Math.round(b.parts.eff*100)} 安定${Math.round(b.parts.stab*100)}</div>`
+      + `<div class="md-sub">速さ${Math.round(b.parts.speed*100)} 粘り${Math.round(b.parts.drop*100)}</div>`
+      + `<div class="md-sub">効率${Math.round(b.parts.eff*100)} 安定${Math.round(b.parts.stab*100)}</div>`
       : '<div class="md-sub">負荷L・H の計測のみ</div>');
   html += detailCard('負荷時回転数', fmt(e.rpm, 0), 'rpm', rankHtml(rankOf(rpm, all.map(x => num(x.rpm)))));
+  // 負荷L・負荷H それぞれ(負荷L・H の計測だけ)
+  const rpmL = num(e.rpmL), rpmH = num(e.rpmH);
+  if(rpmL !== null || rpmH !== null){
+    const lhDrop = (rpmL && rpmH) ? rpmH / rpmL * 100 : null;
+    html += detailCard('負荷L 回転数', fmt(e.rpmL, 0), 'rpm',
+      rankHtml(rankOf(rpmL, all.map(x => num(x.rpmL))))
+      + `<div class="md-sub">電力 ${e.wL ? fmt(e.wL, 2) + 'W' : '—'}</div>`);
+    html += detailCard('負荷H 回転数', fmt(e.rpmH, 0), 'rpm',
+      rankHtml(rankOf(rpmH, all.map(x => num(x.rpmH))))
+      + `<div class="md-sub">電力 ${e.wH ? fmt(e.wH, 2) + 'W' : '—'}</div>`);
+    html += detailCard('落ち率 (H÷L)', lhDrop === null ? '—' : lhDrop.toFixed(1), '%',
+      rankHtml(rankOf(lhDrop, all.map(x => (num(x.rpmL) && num(x.rpmH)) ? num(x.rpmH) / num(x.rpmL) * 100 : null))));
+  }
   html += detailCard('無負荷回転数', fmt(e.rpmNl, 0), 'rpm', rankHtml(rankOf(rpmNl, all.map(x => num(x.rpmNl)))));
   html += detailCard('消費電力', fmt(e.w, 2), 'W',
     `<div class="md-sub">平均比</div><div class="md-sub ${signClass(wDiff)}">${signedPct(wDiff, 1)}</div>`);
