@@ -896,7 +896,7 @@
 <header>
   <div class="eyebrow">MINI 4WD &nbsp;/&nbsp; MOTOR DATABASE</div>
   <h1>モーターラボ<span>モーター管理</span></h1>
-  <p class="measure-note">KaedeSystem モーターマネージャーの「計測」での測定値です（セレクター付き 負荷L: 2.3V・10秒 → 2.8V・105mΩ・10秒 ／ 負荷H: 2.8V・105mΩ・10秒 ／ 無負荷: 3.0V・10秒。負荷時回転数と消費電力は 負荷L と 負荷H の平均。総合は 速さ50・粘り20・効率20・安定性10 の配分で、機種ごとの基準(速さ・効率は登録されているモーターの最低を 0 点・最高を満点として自動で決める。粘り 85〜100%・安定性 ばらつき 3〜0%)に対する個体ごとの点）。</p>
+  <p class="measure-note">KaedeSystem モーターマネージャーの「計測」での測定値です（セレクター付き 負荷L: 2.3V・10秒 → 2.8V・105mΩ・10秒 ／ 負荷H: 2.8V・105mΩ・10秒 ／ 無負荷: 3.0V・10秒。負荷時回転数と消費電力は 負荷L と 負荷H の平均。総合は 速さ50・粘り20・効率20・安定性10 の配分で、機種ごとの基準(速さ・粘り・効率は登録されているモーターの最低を 0 点・最高を満点として自動で決める。安定性は ばらつき 3〜0%)に対する個体ごとの点）。</p>
   <div class="sync-status" id="sync-status">● ローカル保存のみ</div>
   <div class="sister-apps">
     <span class="sister-apps-label">race_manager登録者の連携アプリ</span>
@@ -1382,7 +1382,7 @@ function balanceMap(key){
   return MotorBalance.balanceScores(getDisplayRows(key).map(r => r.latest), refOf(key));
 }
 
-// その種類の総合点の基準(速さ・効率の 0 点と満点)。登録されている全員分の最新計測から自動で決める
+// その種類の総合点の基準(速さ・粘り・効率の 0 点と満点)。登録されている全員分の最新計測から自動で決める
 // (いちばん低い個体が 0 点、いちばん高い個体が満点)。値の違う負荷L・H の計測が 2 本以上なければ null
 function refOf(key){
   if(!window.MotorBalance) return null;
@@ -2446,7 +2446,7 @@ function renderMotorDetail(row){
   html += detailCard('計測', String(row.count), '回',
     `<div class="md-sub">最新</div><div class="md-sub">${escapeHtml(shortDate(e.date))}</div>`);
   html += '</div>';
-  html += '<div class="md-legend">総合＝速さ50・粘り(負荷H÷負荷L)20・効率(負荷時÷消費電力)20・安定性10 の配分で、機種ごとの基準(速さ・効率は登録されているモーターの最低を 0 点・最高を満点として自動で決める。粘り 85〜100%・安定性 ばらつき 3〜0%)に対する個体ごとの点（負荷L・H の計測だけ）。回転の粘り＝負荷時÷無負荷（負荷で回転が落ちにくいほど高い）／電力あたり回転＝負荷時÷消費電力（同じ速さで電気を食わないほど高い）。順位は同じ種類の全モーターの最新計測で比較。</div>';
+  html += '<div class="md-legend">総合＝速さ50・粘り(負荷H÷負荷L)20・効率(負荷時÷消費電力)20・安定性10 の配分で、機種ごとの基準(速さ・粘り・効率は登録されているモーターの最低を 0 点・最高を満点として自動で決める。安定性は ばらつき 3〜0%)に対する個体ごとの点（負荷L・H の計測だけ）。回転の粘り＝負荷時÷無負荷（負荷で回転が落ちにくいほど高い）／電力あたり回転＝負荷時÷消費電力（同じ速さで電気を食わないほど高い）。順位は同じ種類の全モーターの最新計測で比較。</div>';
 
   // 履歴（負荷時回転数）から見える変化
   const series = row.history.slice().reverse().map(x => num(x.rpm)).filter(v => v !== null); // 古い→新しい
