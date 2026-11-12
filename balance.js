@@ -13,7 +13,6 @@
   const DROP_LO = 8500, DROP_HI = 10000, CV_ZERO = 300;
   const pos = (x) => Number.isFinite(x) && x > 0;
   const num = (s) => { const n = parseFloat(s); return pos(n) ? n : 0; };
-  const q16 = (x, scale) => (pos(x) ? Math.min(65535, Math.max(1, Math.round(x * scale))) : 0);
 
   // 基準 {rpmLo, rpmHi, effLo, effHi}(本体の measRefOk と同じ範囲)
   function refOk(r) {
@@ -23,16 +22,26 @@
       && r.rpmLo < r.rpmHi && r.effLo < r.effHi;
   }
 
-  // 行の4項目(本体の表と同じ細かさの整数。値が無い項目は 0)。ver 2 でない・回転数の無い行は null
+  // a/b を四捨五入(a, b は正の整数。.5 は切り上げ)。本体の measDivRound と同じ
+  const divRound = (a, b) => Math.floor((2 * a + b) / (2 * b));
+
+  // 行の4項目(本体の measBalOf と同じ: 回転数は整数、電流・電圧は小数2桁にそろえて整数だけで出す。
+  // 値が無い項目は 0)。ver 2 でない・回転数の無い行は null
   function balOf(e) {
     if (!e || e.ver !== 2) return null;
-    const rpm = num(e.rpm);
+    const rpm = Math.round(num(e.rpm));
     if (!rpm) return null;
-    const l = num(e.rpmL), h = num(e.rpmH);
-    const wl = num(e.wL), wh = num(e.wH);
-    const w = wl && wh ? (wl + wh) / 2 : wl || wh || num(e.w);
-    const cv = Math.max(num(e.cvL), num(e.cvH));
-    return { rpm, drop: q16(l && h ? h / l : 0, Q) / Q, eff: q16(w ? rpm / w : 0, 1), cv: q16(cv, Q) / Q };
+    const l = Math.round(num(e.rpmL)), h = Math.round(num(e.rpmH));
+    // 消費電力 [1e-4 W] = 電圧(小数2桁)×電流(小数2桁)。電圧・電流が無い行(手入力など)は wL・wH・w から
+    const p = (v, i, w) => (num(v) && num(i) ? Math.round(num(v) * 100) * Math.round(num(i) * 100) : Math.round(num(w) * 10000));
+    const pl = p(e.vL, e.iL, e.wL), ph = p(e.vH, e.iH, e.wH);
+    let eff = 0;
+    if (pl > 0 && ph > 0) eff = divRound(rpm * 20000, pl + ph);
+    else if (pl + ph > 0) eff = divRound(rpm * 10000, pl + ph);
+    else if (num(e.w)) eff = divRound(rpm * 10000, Math.round(num(e.w) * 10000));
+    const drop = l > 0 && h > 0 ? divRound(h * 10000, l) : 0;
+    const cv = Math.round(Math.max(num(e.cvL), num(e.cvH)) * Q);
+    return { rpm, drop: Math.min(drop, 65535) / Q, eff: Math.min(eff, 65535), cv: cv / Q };
   }
 
   // 値 v を lo〜hi で 分子/分母 に(値が無ければ 1/2)

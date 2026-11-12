@@ -5,13 +5,16 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { balOf, balanceScores, refOk } = require('../balance.js');
 
-// 負荷時回転数 rpm・粘り drop(H÷L)・効率 eff(rpm/W)・ばらつき cv から ver 2 の行(値は文字列)を作る
+// 負荷時回転数 rpm・粘り drop(H÷L)・効率 eff(rpm/W)・ばらつき cv から ver 2 の行を作る。
+// 値は受け口が保存する形と同じ文字(回転数は整数、電圧 1.00V・電流は小数2桁、ばらつきは小数4桁)。
+// 本体の test の balRow と同じ値になる(電流 = rpm ÷ eff を小数2桁に)
 function entry(no, rpm, drop, eff, cv, over = {}) {
   const l = (2 * rpm) / (1 + drop);
-  const w = eff > 0 ? (rpm / eff).toFixed(4) : '';
+  const i = eff > 0 ? (rpm / eff).toFixed(2) : '';
   return {
-    no, ver: 2, rpm: String(rpm), rpmL: String(l), rpmH: String(l * drop),
-    wL: w, wH: w, w, cvL: cv ? cv.toFixed(4) : '', cvH: cv ? (cv / 2).toFixed(4) : '', ...over,
+    no, ver: 2, rpm: String(rpm), rpmL: String(Math.round(l)), rpmH: String(Math.round(l * drop)),
+    vL: i ? '1.00' : '', iL: i, vH: i ? '1.00' : '', iH: i, wL: i, wH: i, w: '',
+    cvL: cv ? cv.toFixed(4) : '', cvH: cv ? (cv / 2).toFixed(4) : '', ...over,
   };
 }
 
@@ -26,7 +29,7 @@ test('見本: A 54・B 31(ちょうど 30.5 → 切り上げ)・C 95・D 0、項
   assert.deepEqual([m.get('001').score, m.get('002').score, m.get('003').score, m.get('004').score], [54, 31, 95, 0]);
   const p = m.get('001').parts;
   assert.equal(p.speed, 0.5);
-  assert.ok(Math.abs(p.drop - 2 / 3) < 1e-9 && Math.abs(p.eff - 0.4) < 1e-9 && Math.abs(p.stab - 220 / 300) < 1e-9);
+  assert.ok(Math.abs(p.drop - 2 / 3) < 1e-9 && Math.abs(p.eff - 0.399) < 1e-9 && Math.abs(p.stab - 220 / 300) < 1e-9);
   assert.deepEqual(m.get('003').parts, { speed: 1, drop: 1, eff: 1, stab: 0.5 });   // 満点で止まる・ばらつき無し=50
   assert.deepEqual(m.get('004').parts, { speed: 0, drop: 0, eff: 0, stab: 0 });     // 0 で止まる
 });
@@ -65,13 +68,26 @@ test('負荷1点の頃の行(ver なし)・回転数の無い行は入れない�
 
 test('基準の幅が大きくても(分母の積が 2^53 を超えても)点が正しい', () => {
   const wide = { rpmLo: 1, rpmHi: 200000, effLo: 1, effHi: 65535 };
-  // 速さ (16000−1)/199999、粘り 1000/1500、効率 (2400−1)/65534、安定 220/300 → 50·0.08000 + 20·0.6667 + 20·0.03661 + 10·0.7333
+  // 速さ (16000−1)/199999、粘り 1000/1500、効率 (2399−1)/65534、安定 220/300(本体の test と同じ)
   const s = balanceScores([A], wide).get('001').score;
-  const exact = 50 * (15999 / 199999) + 20 * (1000 / 1500) + 20 * (2399 / 65534) + 10 * (220 / 300);
+  const exact = 50 * (15999 / 199999) + 20 * (1000 / 1500) + 20 * (2398 / 65534) + 10 * (220 / 300);
   assert.equal(s, Math.floor(exact + 0.5));
 });
 
-test('消費電力は wL・wH の平均、無ければ w', () => {
+test('実際に近い値でも本体と同じ点(本体の test の「実際に近い値」と同じ見本: 62 点)', () => {
+  // 本体の生の値 L 16410.3rpm 2.7949V 1.8549A / H 15589.7rpm 2.7612V 2.2349A を、受け口が保存する形にしたもの
+  const real = { no: '007', ver: 2, rpm: '16000', rpmL: '16410', rpmH: '15590', vL: '2.79', iL: '1.85', vH: '2.76', iH: '2.23',
+    wL: '5.16', wH: '6.15', w: '5.66', cvL: '0.0083', cvH: '0.0061' };
+  const b = balOf(real);
+  assert.equal(b.eff, 2828);
+  assert.equal(Math.round(b.drop * 10000), 9500);
+  assert.equal(balanceScores([real], REF).get('007').score, 62);
+});
+
+test('消費電力は電圧・電流から(L・H の平均、片方だけならその値)。電圧・電流が無い行は wL・wH・w', () => {
+  const lh = { ver: 2, rpm: '15820', rpmL: '16340', rpmH: '15300', vL: '2.56', iL: '2.30', vH: '2.49', iH: '2.95' };
+  assert.equal(balOf(lh).eff, 2391);                          // 本体の test と同じ
+  assert.equal(balOf({ ...lh, iH: '' }).eff, 2687);
   const b = balOf({ ver: 2, rpm: '15820', rpmL: '16340', rpmH: '15300', wL: '5.88', wH: '7.35', w: '', cvL: '0.0080', cvH: '0.0110' });
   assert.ok(Math.abs(b.eff - Math.round(15820 / 6.615)) < 1e-9);
   assert.ok(Math.abs(b.cv - 0.011) < 1e-9);
