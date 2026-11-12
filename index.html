@@ -365,7 +365,7 @@
   tbody tr:hover{background:rgba(255,255,255,.02);}
   tbody tr:last-child td{border-bottom:none;}
   td.rpm-cell{position:relative;}
-  td.c-meta, .d-short, .latest-tag, .no-date, .lh-sub{display:none;}
+  td.c-meta, .d-short, .latest-tag, .no-date{display:none;}
   .val-up{color:var(--danger);}
   .val-down{color:var(--blue);}
   .delta{font-size:11px;font-weight:600;margin-left:4px;color:var(--muted)!important;}
@@ -725,7 +725,6 @@
     /* スマホ表示: 負荷L・H の列は出さず、負荷時回転数の下に小さく添える */
     .table-wrap table th.c-rpmL, .table-wrap table th.c-rpmH,
     .table-wrap table td.c-rpmL, .table-wrap table td.c-rpmH{display:none !important;}
-    .table-wrap table .lh-sub{display:block;font-size:10px;line-height:1.2;color:var(--muted);white-space:nowrap;}
 
     table.modal-table.ranking-table td,
     table.modal-table.ranking-table th{
@@ -1738,9 +1737,7 @@ function renderRows(){
     tdRpm.className = 'num rpm-cell' + (rpmCell.cls ? ' '+rpmCell.cls : '');
     tagCell(tdRpm, 'rpm');
     const pct = Math.max(2, (parseFloat(e.rpm)||0) / maxRpm * 100);
-    // スマホ表示では負荷L・H の列を出さないので、負荷時回転数の下に小さく添える(PC表示では隠す)
-    const lhSub = (e.rpmL || e.rpmH) ? `<div class="lh-sub">L ${fmt(e.rpmL, 0)} / H ${fmt(e.rpmH, 0)}</div>` : '';
-    tdRpm.innerHTML = `${rpmCell.html}${lhSub}<div class="rpm-bar-track"><div class="rpm-bar-fill" style="width:${pct}%"></div></div>`;
+    tdRpm.innerHTML = `${rpmCell.html}<div class="rpm-bar-track"><div class="rpm-bar-fill" style="width:${pct}%"></div></div>`;
     tr.appendChild(tdRpm);
 
     // 負荷L・負荷H(負荷L・H の計測だけ。負荷1点の頃の行は —)
