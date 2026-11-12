@@ -4,6 +4,7 @@
 //   粘り = 負荷H ÷ 負荷L を 85%(0 点)〜100%(満点)で
 //   効率 = 負荷時回転数 ÷ 消費電力(wL・wH の平均。無ければ w)を、機種ごとの基準 effLo〜effHi で
 //   安定性 = ばらつき(cvL・cvH の大きい方)を 3%(0 点)〜0%(満点)で
+// 基準は登録されている個体の最低〜最高から自動で決める(autoRef)。
 // 基準を超えれば満点・下回れば 0 点で止める。値が無い項目は 50 点。基準が無い機種は点を出さない。
 // 点は分数のまま正確に足して四捨五入(ちょうど .5 は切り上げ)。分母の積が大きいので BigInt で計算する。
 // 入れるのは負荷L・H の形(ver 2)の行だけ。ブラウザでは window.MotorBalance、node では module.exports
@@ -83,7 +84,18 @@
     return map;
   }
 
-  const api = { balOf, balanceScores, refOk };
+  // 登録されている計測から基準を自動で決める: 速さ・効率それぞれ、いちばん低い個体を 0 点、いちばん高い個体を満点。
+  // entries = 番号ごとの最後の計測。値の違う負荷L・H の計測が 2 本以上ないときは null
+  function autoRef(entries) {
+    const bals = (entries || []).map(balOf).filter(Boolean);
+    const rpms = bals.map((b) => Math.round(b.rpm)).filter((v) => v > 0);
+    const effs = bals.map((b) => Math.round(b.eff)).filter((v) => v > 0);
+    if (rpms.length < 2 || effs.length < 2) return null;
+    const r = { rpmLo: Math.min(...rpms), rpmHi: Math.max(...rpms), effLo: Math.min(...effs), effHi: Math.max(...effs) };
+    return refOk(r) ? r : null;
+  }
+
+  const api = { balOf, balanceScores, refOk, autoRef };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MotorBalance = api;
 })(typeof window !== 'undefined' ? window : this);

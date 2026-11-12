@@ -880,13 +880,6 @@
   }
   body.app-hidden header, body.app-hidden main{display:none;}
   #entry-form.readonly-mode{display:none;}
-  .ref-head{font-size:13px;font-weight:700;margin-bottom:6px;}
-  .ref-sub{display:block;font-size:11px;font-weight:400;color:var(--muted);margin-top:2px;}
-  .ref-view{font-size:13px;color:var(--text);margin-bottom:8px;font-variant-numeric:tabular-nums;}
-  .ref-view.unset{color:var(--muted);}
-  .ref-note{font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.5;}
-  .ref-error{font-size:12px;color:var(--danger);margin-bottom:8px;}
-  .ref-box.readonly .ref-edit{display:none;}
 </style>
 </head>
 <body class="app-hidden">
@@ -904,7 +897,7 @@
 <header>
   <div class="eyebrow">MINI 4WD &nbsp;/&nbsp; MOTOR DATABASE</div>
   <h1>モーターラボ<span>モーター管理</span></h1>
-  <p class="measure-note">KaedeSystem モーターマネージャーの「計測」での測定値です（セレクター付き 負荷L: 2.3V・10秒 → 2.8V・105mΩ・10秒 ／ 負荷H: 2.8V・105mΩ・10秒 ／ 無負荷: 3.0V・10秒。負荷時回転数と消費電力は 負荷L と 負荷H の平均。総合は 速さ50・粘り20・効率20・安定性10 の配分で、機種ごとの基準(速さ・効率の 0 点と満点はモーターラボで決める。粘り 85〜100%・安定性 ばらつき 3〜0%)に対する個体ごとの点）。</p>
+  <p class="measure-note">KaedeSystem モーターマネージャーの「計測」での測定値です（セレクター付き 負荷L: 2.3V・10秒 → 2.8V・105mΩ・10秒 ／ 負荷H: 2.8V・105mΩ・10秒 ／ 無負荷: 3.0V・10秒。負荷時回転数と消費電力は 負荷L と 負荷H の平均。総合は 速さ50・粘り20・効率20・安定性10 の配分で、機種ごとの基準(速さ・効率は登録されているモーターの最低を 0 点・最高を満点として自動で決める。粘り 85〜100%・安定性 ばらつき 3〜0%)に対する個体ごとの点）。</p>
   <div class="sync-status" id="sync-status">● ローカル保存のみ</div>
   <div class="sister-apps">
     <span class="sister-apps-label">race_manager登録者の連携アプリ</span>
@@ -980,26 +973,6 @@
       </div>
     </div>
     <div id="form-error" style="display:none;padding:0 18px 14px;color:var(--danger);font-size:12px;"></div>
-
-    <!-- 総合点の基準(機種ごと)。入れられるのはマスターだけ。ほかの人には今の基準だけを出す -->
-    <div class="entry ref-box" id="ref-box">
-      <div class="ref-head">採点の基準<span class="ref-sub">総合点(速さ50・粘り20・効率20・安定性10)の速さ・効率の 0 点と満点</span></div>
-      <div class="ref-view" id="ref-view"></div>
-      <div class="ref-edit" id="ref-edit">
-        <div class="entry-fields">
-          <div class="field"><label>速さ 0 点</label><div class="unit-wrap"><input type="number" id="ref-rpm-lo" step="1" inputmode="numeric"><span class="unit">rpm</span></div></div>
-          <div class="field"><label>速さ 満点</label><div class="unit-wrap"><input type="number" id="ref-rpm-hi" step="1" inputmode="numeric"><span class="unit">rpm</span></div></div>
-          <div class="field"><label>効率 0 点</label><div class="unit-wrap"><input type="number" id="ref-eff-lo" step="1" inputmode="numeric"><span class="unit">rpm/W</span></div></div>
-          <div class="field"><label>効率 満点</label><div class="unit-wrap"><input type="number" id="ref-eff-hi" step="1" inputmode="numeric"><span class="unit">rpm/W</span></div></div>
-        </div>
-        <div class="ref-note">粘り(負荷H÷負荷L)は 85%〜100%、安定性(ばらつき)は 3%〜0% で全機種共通。4つとも空にして保存すると基準を消します。KaedeSystem 本体にはスマホをつないだときに届きます。</div>
-        <div id="ref-error" class="ref-error" style="display:none;"></div>
-        <div class="entry-actions">
-          <button type="button" class="cancel-edit" id="ref-fill-btn">今の記録から入れる</button>
-          <button type="button" class="add" id="ref-save-btn">基準を保存</button>
-        </div>
-      </div>
-    </div>
 
     <div class="table-wrap">
       <table>
@@ -1212,6 +1185,7 @@ function pushToCloud(data){
 
 // 通常の保存はこちらを呼ぶ：ローカル保存＋クラウド保存の両方を行う
 function saveAll(data){
+  syncRefs(data);
   saveLocal(data);
   pushToCloud(data);
 }
@@ -1225,7 +1199,7 @@ function normalizeDb(d){
   if(!d.entries) d.entries = {};
   if(!d.sort) d.sort = {};
   if(!d.owners) d.owners = [];
-  if(!d.refs || typeof d.refs !== 'object') d.refs = {};   // 総合点の基準(種類ごと)
+  if(!d.refs || typeof d.refs !== 'object') d.refs = {};   // 総合点の基準(種類ごと。記録から自動で決めて本体へ渡す)
   if(d.schema !== DB_SCHEMA){
     d.entries = {};   // 古い計測はすべて削除（所有者の候補は残す）
     d.sort = {};
@@ -1409,71 +1383,22 @@ function balanceMap(key){
   return MotorBalance.balanceScores(getDisplayRows(key).map(r => r.latest), refOf(key));
 }
 
-// その種類の総合点の基準(速さ・効率の 0 点と満点)。無ければ null
+// その種類の総合点の基準(速さ・効率の 0 点と満点)。登録されている全員分の最新計測から自動で決める
+// (いちばん低い個体が 0 点、いちばん高い個体が満点)。値の違う負荷L・H の計測が 2 本以上なければ null
 function refOf(key){
-  const r = db.refs && db.refs[key];
-  return (window.MotorBalance && MotorBalance.refOk(r)) ? r : null;
+  if(!window.MotorBalance) return null;
+  return MotorBalance.autoRef(getDisplayRows(key).map(r => r.latest));
 }
 
-// 採点の基準の欄を描く(マスターは入れられる、ほかの人は見るだけ)
-function renderRefBox(){
-  const box = document.getElementById('ref-box');
-  const view = document.getElementById('ref-view');
-  const r = refOf(currentKey);
-  box.classList.toggle('readonly', !canEdit);
-  view.classList.toggle('unset', !r);
-  view.textContent = r
-    ? `速さ ${fmt(r.rpmLo, 0)}〜${fmt(r.rpmHi, 0)} rpm ／ 効率 ${fmt(r.effLo, 0)}〜${fmt(r.effHi, 0)} rpm/W`
-    : '基準が未設定のため、この種類の総合点は出ません。';
-  // 入れている途中は書き換えない
-  const ids = ['ref-rpm-lo','ref-rpm-hi','ref-eff-lo','ref-eff-hi'];
-  if(!ids.some(id => document.getElementById(id) === document.activeElement)){
-    const vals = r ? [r.rpmLo, r.rpmHi, r.effLo, r.effHi] : ['', '', '', ''];
-    ids.forEach((id, i) => { document.getElementById(id).value = vals[i]; });
-  }
-  document.getElementById('ref-error').style.display = 'none';
-}
-
-function showRefError(text){
-  const el = document.getElementById('ref-error');
-  el.textContent = text;
-  el.style.display = 'block';
-}
-
-// 「基準を保存」: 4つとも空なら消す
-function saveRef(){
-  if(!canEdit) return;
-  const vals = ['ref-rpm-lo','ref-rpm-hi','ref-eff-lo','ref-eff-hi'].map(id => document.getElementById(id).value.trim());
-  if(vals.every(v => v === '')){
-    delete db.refs[currentKey];
-    saveAll(db);
-    renderPanel();
-    return;
-  }
-  const n = vals.map(v => Math.round(parseFloat(v)));
-  const r = {rpmLo: n[0], rpmHi: n[1], effLo: n[2], effHi: n[3]};
-  if(!MotorBalance.refOk(r)){
-    showRefError('4つとも数を入れてください。0 点は満点より小さく、回転数は 200,000 まで、効率は 65,535 までです。');
-    return;
-  }
-  db.refs[currentKey] = r;
-  saveAll(db);
-  renderPanel();
-}
-
-// 「今の記録から入れる」: この種類の新しい計測(負荷L・H)の速さ・効率の最低を 0 点、最高を満点として欄に入れる(保存は手で)
-function fillRefFromRecords(){
-  const bals = getDisplayRows(currentKey).map(r => MotorBalance.balOf(r.latest)).filter(Boolean);
-  const rpms = bals.map(b => Math.round(b.rpm)).filter(v => v > 0);
-  const effs = bals.map(b => Math.round(b.eff)).filter(v => v > 0);
-  if(rpms.length < 2 || effs.length < 2 || Math.min(...rpms) === Math.max(...rpms) || Math.min(...effs) === Math.max(...effs)){
-    showRefError('値の違う新しい計測(負荷L・H)が2本以上ないので、記録からは入れられません。');
-    return;
-  }
-  const set = (id, v) => { document.getElementById(id).value = v; };
-  set('ref-rpm-lo', Math.min(...rpms)); set('ref-rpm-hi', Math.max(...rpms));
-  set('ref-eff-lo', Math.min(...effs)); set('ref-eff-hi', Math.max(...effs));
-  document.getElementById('ref-error').style.display = 'none';
+// KaedeSystem 本体が読む db.refs を、今の記録から決まる基準にそろえる(保存のたびに呼ぶ)
+function syncRefs(data){
+  if(!window.MotorBalance || data !== db) return;
+  const refs = {};
+  Object.keys(data.entries || {}).forEach(key => {
+    const r = refOf(key);
+    if(r) refs[key] = r;
+  });
+  data.refs = refs;
 }
 
 // セルに見出し・短い見出し・配置用のクラス（c-<key>）を付ける
@@ -1632,11 +1557,8 @@ function renderPanel(){
 
   renderHead();
   renderRows();
-  renderRefBox();
 }
 
-document.getElementById('ref-save-btn').addEventListener('click', saveRef);
-document.getElementById('ref-fill-btn').addEventListener('click', fillRefFromRecords);
 
 // 所有者プルダウンを最新の所有者一覧で描き直す
 function renderOwnerFilter(){
@@ -1807,7 +1729,7 @@ function renderRows(){
     tdScore.className = 'num';
     tagCell(tdScore, 'score');
     tdScore.innerHTML = b ? `${b.score}<span class="delta">${b.rank}位</span>` : '—';
-    if(!b) tdScore.title = refOf(currentKey) ? '負荷L・H の計測だけ' : '採点の基準が未設定';
+    if(!b) tdScore.title = refOf(currentKey) ? '負荷L・H の計測だけ' : '計測(負荷L・H)が2本以上そろうと出ます';
     if(b) tdScore.title = `速さ ${Math.round(b.parts.speed*100)}・粘り ${Math.round(b.parts.drop*100)}・効率 ${Math.round(b.parts.eff*100)}・安定 ${Math.round(b.parts.stab*100)}`;
     tr.appendChild(tdScore);
 
@@ -2501,7 +2423,7 @@ function renderMotorDetail(row){
     b ? `<div class="md-sub">${b.rank}位 / ${b.total}台</div>`
       + `<div class="md-sub">速さ${Math.round(b.parts.speed*100)} 粘り${Math.round(b.parts.drop*100)}</div>`
       + `<div class="md-sub">効率${Math.round(b.parts.eff*100)} 安定${Math.round(b.parts.stab*100)}</div>`
-      : !refOf(currentKey) ? '<div class="md-sub">採点の基準が未設定</div>'
+      : !refOf(currentKey) ? '<div class="md-sub">計測が2本以上で採点</div>'
       : '<div class="md-sub">負荷L・H の計測のみ</div>');
   html += detailCard('負荷時回転数', fmt(e.rpm, 0), 'rpm', rankHtml(rankOf(rpm, all.map(x => num(x.rpm)))));
   // 負荷L・負荷H それぞれ(負荷L・H の計測だけ)
@@ -2527,7 +2449,7 @@ function renderMotorDetail(row){
   html += detailCard('計測', String(row.count), '回',
     `<div class="md-sub">最新</div><div class="md-sub">${escapeHtml(shortDate(e.date))}</div>`);
   html += '</div>';
-  html += '<div class="md-legend">総合＝速さ50・粘り(負荷H÷負荷L)20・効率(負荷時÷消費電力)20・安定性10 の配分で、機種ごとの基準(速さ・効率の 0 点と満点はモーターラボで決める。粘り 85〜100%・安定性 ばらつき 3〜0%)に対する個体ごとの点（負荷L・H の計測だけ）。回転の粘り＝負荷時÷無負荷（負荷で回転が落ちにくいほど高い）／電力あたり回転＝負荷時÷消費電力（同じ速さで電気を食わないほど高い）。順位は同じ種類の全モーターの最新計測で比較。</div>';
+  html += '<div class="md-legend">総合＝速さ50・粘り(負荷H÷負荷L)20・効率(負荷時÷消費電力)20・安定性10 の配分で、機種ごとの基準(速さ・効率は登録されているモーターの最低を 0 点・最高を満点として自動で決める。粘り 85〜100%・安定性 ばらつき 3〜0%)に対する個体ごとの点（負荷L・H の計測だけ）。回転の粘り＝負荷時÷無負荷（負荷で回転が落ちにくいほど高い）／電力あたり回転＝負荷時÷消費電力（同じ速さで電気を食わないほど高い）。順位は同じ種類の全モーターの最新計測で比較。</div>';
 
   // 履歴（負荷時回転数）から見える変化
   const series = row.history.slice().reverse().map(x => num(x.rpm)).filter(v => v !== null); // 古い→新しい

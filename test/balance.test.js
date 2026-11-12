@@ -3,7 +3,7 @@
 // 基準 速さ 14000〜18000 rpm・効率 2000〜3000 rpm/W で A 54・B 31・C 95・D 0 点
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { balOf, balanceScores, refOk } = require('../balance.js');
+const { balOf, balanceScores, refOk, autoRef } = require('../balance.js');
 
 // 負荷時回転数 rpm・粘り drop(H÷L)・効率 eff(rpm/W)・ばらつき cv から ver 2 の行を作る。
 // 値は受け口が保存する形と同じ文字(回転数は整数、電圧 1.00V・電流は小数2桁、ばらつきは小数4桁)。
@@ -93,4 +93,20 @@ test('消費電力は電圧・電流から(L・H の平均、片方だけなら�
   assert.ok(Math.abs(b.cv - 0.011) < 1e-9);
   const c = balOf({ ver: 2, rpm: '15820', rpmL: '16340', rpmH: '15300', w: '6.00' });
   assert.ok(Math.abs(c.eff - Math.round(15820 / 6)) < 1e-9);
+});
+
+test('基準の自動設定: 速さ・効率それぞれ最低を 0 点・最高を満点に', () => {
+  const r = autoRef([A, B, C, D]);
+  assert.deepEqual(r, { rpmLo: 13000, rpmHi: 19000, effLo: balOf(D).eff, effHi: balOf(C).eff });
+  assert.ok(refOk(r));
+  const m = balanceScores([A, B, C, D], r);
+  assert.equal(m.get('003').rank, 1);
+  assert.equal(m.get('004').score, 0);
+});
+
+test('基準の自動設定: 計測が 2 本未満・値が同じなら null', () => {
+  assert.equal(autoRef([A]), null);
+  assert.equal(autoRef([A, { ...A, no: '009' }]), null);
+  assert.equal(autoRef([]), null);
+  assert.equal(autoRef([A, { no: '010', ver: 1, rpm: '20000' }]), null);
 });
