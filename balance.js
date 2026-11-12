@@ -26,31 +26,43 @@
 
   const ITEMS = [['speed', 'rpm', false], ['drop', 'drop', false], ['eff', 'eff', false], ['stab', 'cv', true]];
 
-  function partsOf(me, others) {
-    const parts = {};
+  // 項目ごとの位置を 分子/分母 の分数で(本体の measBalScoreIn と同じ)
+  function fracsOf(me, others) {
+    const fr = {};
     for (const [name, key, lowerBetter] of ITEMS) {
       const v = me[key];
-      if (!pos(v)) { parts[name] = 0.5; continue; }
-      let m = 0, worse = 0;
+      if (!pos(v)) { fr[name] = [1, 2]; continue; }   // 自分の値が無い → 0.5
+      let m = 0, w2 = 0;                               // w2 = 悪い本数×2 + 同じ値の本数
       for (const o of others) {
         const ov = o[key];
         if (!pos(ov)) continue;
         m++;
-        if (ov === v) worse += 0.5;
-        else if (lowerBetter ? ov > v : ov < v) worse += 1;
+        if (ov === v) w2 += 1;
+        else if (lowerBetter ? ov > v : ov < v) w2 += 2;
       }
-      parts[name] = m === 0 ? 1 : worse / m;
+      fr[name] = m === 0 ? [1, 1] : [w2, 2 * m];
     }
-    return parts;
+    return fr;
+  }
+
+  // 点は整数だけで正確に出す(ちょうど .5 は切り上げ)。小数で計算すると本体と丸めが食い違うため。
+  // D ≤ 1998^4 ≒ 1.6e13、2N + D ≤ 3.2e15 で Number の整数の範囲(9e15)に入る
+  const WI = { speed: 50, drop: 20, eff: 20, stab: 10 };
+  function scoreOf(fr) {
+    const names = ['speed', 'drop', 'eff', 'stab'];
+    const D = names.reduce((p, n) => p * fr[n][1], 1);
+    const N = names.reduce((s, n) => s + WI[n] * fr[n][0] * (D / fr[n][1]), 0);
+    return Math.floor((2 * N + D) / (2 * D));
   }
 
   // entries = 番号ごとの最後の計測。返り値 Map(no → {score, rank, total, parts})
   function balanceScores(entries) {
     const list = (entries || []).map((e) => ({ no: e && e.no, b: balOf(e) })).filter((x) => x.b);
     const out = list.map((x) => {
-      const parts = partsOf(x.b, list.filter((y) => y !== x).map((y) => y.b));
-      const s = W.speed * parts.speed + W.drop * parts.drop + W.eff * parts.eff + W.stab * parts.stab;
-      return { no: x.no, rpm: x.b.rpm, score: Math.round(100 * s), parts };
+      const fr = fracsOf(x.b, list.filter((y) => y !== x).map((y) => y.b));
+      const parts = {};
+      for (const k of Object.keys(fr)) parts[k] = fr[k][0] / fr[k][1];
+      return { no: x.no, rpm: x.b.rpm, score: scoreOf(fr), parts };
     });
     const map = new Map();
     for (const r of out) {

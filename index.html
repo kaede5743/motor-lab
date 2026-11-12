@@ -1653,6 +1653,8 @@ function renderRows(){
     let cmp;
     if(col.type === 'num') cmp = a - b;
     else cmp = a.localeCompare(b, 'ja');
+    // 総合が同点のときは総合の順位(同点は負荷時回転数の高い方が上)で並べる
+    if(cmp === 0 && col.key === 'score') cmp = bal.get(y.no).rank - bal.get(x.no).rank;
     return sort.dir === 'desc' ? -cmp : cmp;
   });
 

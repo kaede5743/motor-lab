@@ -26,6 +26,19 @@ test('見本の3本: 80・70・0 点、1・2・3 位、項目ごとの位置', (
   assert.equal(m.get('001').total, 3);
 });
 
+test('ちょうど .5 の点は切り上げ(本体の test_balance と同じ見本で 23 点)', () => {
+  // A: 速さ 1/4・粘り 1/4・効率 0/4・安定 2/4 → 50×0.25 + 20×0.25 + 0 + 10×0.5 = 22.5 → 23
+  const m = balanceScores([
+    entry('001', 15000, 0.93, 2400, 0.010),
+    entry('002', 14000, 0.95, 2500, 0.005),
+    entry('003', 16000, 0.90, 2600, 0.008),
+    entry('004', 16500, 0.96, 2700, 0.015),
+    entry('005', 17000, 0.97, 2800, 0.020),
+  ]);
+  assert.equal(m.get('001').score, 23);
+  assert.deepEqual(m.get('001').parts, { speed: 0.25, drop: 0.25, eff: 0, stab: 0.5 });
+});
+
 test('1 本だけは 100 点・1 位、同じ値の 2 本はどちらも 50 点', () => {
   assert.equal(balanceScores([e1]).get('001').score, 100);
   assert.equal(balanceScores([e1]).get('001').rank, 1);
