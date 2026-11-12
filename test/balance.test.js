@@ -95,9 +95,12 @@ test('消費電力は電圧・電流から(L・H の平均、片方だけなら�
   assert.ok(Math.abs(c.eff - Math.round(15820 / 6)) < 1e-9);
 });
 
-test('基準の自動設定: 速さ・効率それぞれ最低を 0 点・最高を満点に', () => {
+test('基準の自動設定: 速さ・粘り・効率それぞれ最低を 0 点・最高を満点に', () => {
   const r = autoRef([A, B, C, D]);
-  assert.deepEqual(r, { rpmLo: 13000, rpmHi: 19000, effLo: balOf(D).eff, effHi: balOf(C).eff });
+  assert.deepEqual(r, {
+    rpmLo: 13000, rpmHi: 19000, effLo: balOf(D).eff, effHi: balOf(C).eff,
+    dropLo: Math.round(balOf(D).drop * 10000), dropHi: Math.round(balOf(C).drop * 10000),
+  });
   assert.ok(refOk(r));
   const m = balanceScores([A, B, C, D], r);
   assert.equal(m.get('003').rank, 1);
@@ -109,4 +112,26 @@ test('基準の自動設定: 計測が 2 本未満・値が同じなら null', (
   assert.equal(autoRef([A, { ...A, no: '009' }]), null);
   assert.equal(autoRef([]), null);
   assert.equal(autoRef([A, { no: '010', ver: 1, rpm: '20000' }]), null);
+});
+
+test('粘りの基準: 83〜86% に固まっていても点に差が出る(固定の 85%〜100% ならほぼ 0 点)', () => {
+  const xs = [entry('001', 21661, 0.836, 2320, 0.01), entry('002', 22183, 0.847, 2330, 0.01),
+    entry('003', 21122, 0.858, 2326, 0.01), entry('004', 21358, 0.836, 2130, 0.01)];
+  const r = autoRef(xs);
+  assert.ok(r.dropLo < r.dropHi);
+  const m = balanceScores(xs, r);
+  assert.ok(m.get('003').parts.drop === 1);
+  assert.ok(m.get('002').parts.drop > 0.4 && m.get('002').parts.drop < 0.6);
+  // 粘りの基準が無ければ今までどおり 85%〜100%
+  const fixed = balanceScores(xs, { rpmLo: r.rpmLo, rpmHi: r.rpmHi, effLo: r.effLo, effHi: r.effHi });
+  assert.equal(fixed.get('002').parts.drop, 0);
+});
+
+test('粘りの基準: 値が全部同じなら付けない・片方だけは不正', () => {
+  const xs = [entry('001', 16000, 0.9, 2400, 0.01), entry('002', 17000, 0.9, 2600, 0.01)];
+  const r = autoRef(xs);
+  assert.equal(r.dropLo, undefined);
+  assert.equal(refOk({ ...REF, dropLo: 8000 }), false);
+  assert.equal(refOk({ ...REF, dropLo: 9000, dropHi: 8000 }), false);
+  assert.equal(refOk({ ...REF, dropLo: 8000, dropHi: 9000 }), true);
 });

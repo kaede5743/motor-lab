@@ -1,10 +1,10 @@
 // 総合点(トータルバランス): 速さ 50・粘り 20・効率 20・安定性 10。基準に対する個体ごとの点(ほかの個体に左右されない)。
 // KaedeSystem 本体の motor_meas_math.h(measBalOf / measAbsScore / measAbsRank)と同じ式・同じ丸め。
 //   速さ = 負荷時回転数(L と H の平均)を、機種ごとの基準 rpmLo(0 点)〜rpmHi(満点)で
-//   粘り = 負荷H ÷ 負荷L を 85%(0 点)〜100%(満点)で
+//   粘り = 負荷H ÷ 負荷L を、機種ごとの基準 dropLo(0 点)〜dropHi(満点)で(×10000。基準に無ければ 85%〜100%)
 //   効率 = 負荷時回転数 ÷ 消費電力(wL・wH の平均。無ければ w)を、機種ごとの基準 effLo〜effHi で
 //   安定性 = ばらつき(cvL・cvH の大きい方)を 3%(0 点)〜0%(満点)で
-// 基準は登録されている個体の最低〜最高から自動で決める(autoRef)。
+// 基準(速さ・粘り・効率)は登録されている個体の最低〜最高から自動で決める(autoRef)。
 // 基準を超えれば満点・下回れば 0 点で止める。値が無い項目は 50 点。基準が無い機種は点を出さない。
 // 点は分数のまま正確に足して四捨五入(ちょうど .5 は切り上げ)。分母の積が大きいので BigInt で計算する。
 // 入れるのは負荷L・H の形(ver 2)の行だけ。ブラウザでは window.MotorBalance、node では module.exports
@@ -15,13 +15,17 @@
   const pos = (x) => Number.isFinite(x) && x > 0;
   const num = (s) => { const n = parseFloat(s); return pos(n) ? n : 0; };
 
-  // 基準 {rpmLo, rpmHi, effLo, effHi}(本体の measRefOk と同じ範囲)
+  // 基準 {rpmLo, rpmHi, effLo, effHi}(本体の measRefOk と同じ範囲)。
+  // 粘りの基準 dropLo・dropHi(×10000)は任意(無ければ 85%〜100%)。あるときは 2 つそろって lo < hi
+  const okInt = (v, max) => typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= max;
   function refOk(r) {
     if (!r || typeof r !== 'object') return false;
-    const ok = (v, max) => typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= max;
-    return ok(r.rpmLo, 200000) && ok(r.rpmHi, 200000) && ok(r.effLo, 65535) && ok(r.effHi, 65535)
-      && r.rpmLo < r.rpmHi && r.effLo < r.effHi;
+    if (!(okInt(r.rpmLo, 200000) && okInt(r.rpmHi, 200000) && okInt(r.effLo, 65535) && okInt(r.effHi, 65535)
+      && r.rpmLo < r.rpmHi && r.effLo < r.effHi)) return false;
+    if (r.dropLo === undefined && r.dropHi === undefined) return true;
+    return okInt(r.dropLo, 65535) && okInt(r.dropHi, 65535) && r.dropLo < r.dropHi;
   }
+  const dropRange = (ref) => (ref.dropLo !== undefined ? [ref.dropLo, ref.dropHi] : [DROP_LO, DROP_HI]);
 
   // a/b を四捨五入(a, b は正の整数。.5 は切り上げ)。本体の measDivRound と同じ
   const divRound = (a, b) => Math.floor((2 * a + b) / (2 * b));
@@ -57,7 +61,7 @@
     const drop = Math.round(b.drop * Q), eff = Math.round(b.eff), cv = Math.round(b.cv * Q);
     const fr = [
       frac(rpm, ref.rpmLo, ref.rpmHi, rpm > 0),
-      frac(drop, DROP_LO, DROP_HI, drop > 0),
+      frac(drop, ...dropRange(ref), drop > 0),
       frac(eff, ref.effLo, ref.effHi, eff > 0),
       frac(CV_ZERO - cv, 0, CV_ZERO, cv > 0),   // 小さいほど良い
     ];
@@ -84,15 +88,22 @@
     return map;
   }
 
-  // 登録されている計測から基準を自動で決める: 速さ・効率それぞれ、いちばん低い個体を 0 点、いちばん高い個体を満点。
-  // entries = 番号ごとの最後の計測。値の違う負荷L・H の計測が 2 本以上ないときは null
+  // 登録されている計測から基準を自動で決める: 速さ・粘り・効率それぞれ、いちばん低い個体を 0 点、いちばん高い個体を満点。
+  // entries = 番号ごとの最後の計測。速さ・効率の値の違う負荷L・H の計測が 2 本以上ないときは null。
+  // 粘りだけ値がそろわない(2 本未満・全部同じ)ときは粘りの基準を付けない(85%〜100% になる)
   function autoRef(entries) {
     const bals = (entries || []).map(balOf).filter(Boolean);
     const rpms = bals.map((b) => Math.round(b.rpm)).filter((v) => v > 0);
     const effs = bals.map((b) => Math.round(b.eff)).filter((v) => v > 0);
     if (rpms.length < 2 || effs.length < 2) return null;
     const r = { rpmLo: Math.min(...rpms), rpmHi: Math.max(...rpms), effLo: Math.min(...effs), effHi: Math.max(...effs) };
-    return refOk(r) ? r : null;
+    if (!refOk(r)) return null;
+    const drops = bals.map((b) => Math.round(b.drop * Q)).filter((v) => v > 0);
+    if (drops.length >= 2) {
+      const dr = { ...r, dropLo: Math.min(...drops), dropHi: Math.max(...drops) };
+      if (refOk(dr)) return dr;
+    }
+    return r;
   }
 
   const api = { balOf, balanceScores, refOk, autoRef };
